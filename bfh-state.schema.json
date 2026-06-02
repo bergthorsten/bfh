@@ -47,7 +47,7 @@
     "constraints": { "type": "array", "items": { "type": "string" } },
     "currentStep": {
       "type": "string",
-      "enum": ["intake", "scout", "clarify", "implement", "verify_review", "close", "retro", "done", "failed"]
+      "enum": ["intake", "scout", "clarify", "implement", "verify_review", "close", "pr_review", "retro", "done", "failed"]
     },
     "openQuestions": {
       "type": "array",
@@ -118,7 +118,7 @@
     },
     "review": {
       "type": "object",
-      "required": ["verdict", "findings", "summary"],
+      "required": ["verdict", "findings", "summary", "counts"],
       "properties": {
         "verdict": { "type": "string", "enum": ["pending", "approved", "needs_revision", "failed"] },
         "findings": {
@@ -131,12 +131,45 @@
               "category": { "type": "string" },
               "message": { "type": "string" },
               "file": { "type": "string" },
-              "line": { "type": "integer", "minimum": 1 }
+              "line": { "type": "integer", "minimum": 1 },
+              "principleRef": { "type": "string" }
             },
             "additionalProperties": false
           }
         },
-        "summary": { "type": "string" }
+        "summary": { "type": "string" },
+        "counts": {
+          "type": "object",
+          "required": ["critical", "warning", "info"],
+          "properties": {
+            "critical": { "type": "integer", "minimum": 0 },
+            "warning": { "type": "integer", "minimum": 0 },
+            "info": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "rubric": {
+          "type": "object",
+          "required": ["role", "categories"],
+          "properties": {
+            "role": { "const": "reviewer" },
+            "categories": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["category", "verdict", "detail"],
+                "properties": {
+                  "category": { "type": "string" },
+                  "verdict": { "type": "string" },
+                  "detail": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "allowCloseDespiteCritical": { "type": "boolean" }
       },
       "additionalProperties": false
     },
@@ -145,7 +178,17 @@
       "required": ["url", "draft"],
       "properties": {
         "url": { "type": ["string", "null"] },
-        "draft": { "type": "boolean" }
+        "draft": { "type": "boolean" },
+        "reviewDecision": {
+          "type": ["string", "null"],
+          "enum": ["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED", "COMMENTED", "PENDING", "DISMISSED", "UNKNOWN", null]
+        },
+        "unresolvedThreads": { "type": "integer", "minimum": 0 },
+        "lastSyncedAt": { "type": ["string", "null"] },
+        "checksFailing": { "type": "integer", "minimum": 0 },
+        "externalRevisionCount": { "type": "integer", "minimum": 0 },
+        "externalRevisionLimit": { "type": "integer", "minimum": 0 },
+        "allowDoneWithoutPrApproval": { "type": "boolean" }
       },
       "additionalProperties": false
     },

@@ -1,0 +1,310 @@
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import {
+  ALLOWED_TRANSITIONS,
+  HARNESS_ENTRY_TYPE,
+  ISSUE_KEY_PATTERN,
+  STATE_DIR,
+  STEP_ORDER,
+  type HarnessSessionEntry,
+  type HarnessState,
+  type HarnessStatePatch,
+  type HarnessStep,
+  type JiraIssueSummary,
+} from "./types.ts";
+import { normalizeIssueKey } from "./args.ts";
+import { doneBlockedReasons, readPrReviewMarker } from "./pr-sync.ts";
+import { ensureReviewShape } from "./review.ts";
+
+function extractAcceptanceCriteria(description: string): string[] {
+  const lines = description.split(/\r?\n|(?=\s*[-*]\s+)/).map((line) => line.trim()).filter(Boolean);
+  const criteria: string[] = [];
+  let inSection = false;
+
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    if (/acceptance|akzeptanz|done when|done-when|definition of done/.test(lower)) {
+      inSection = true;
+      continue;
+    }
+    if (inSection && /^#{1,6}\s|^[A-Z][A-Za-z ]+:$/.test(line) && criteria.length > 0) break;
+    if (inSection || /^[-*]\s+\[[ xX]\]/.test(line)) {
+      const cleaned = line.replace(/^[-*]\s+(\[[ xX]\]\s*)?/, "").trim();
+      if (cleaned) criteria.push(cleaned);
+    }
+  }
+
+  return Array.from(new Set(criteria)).slice(0, 12);
+}
+
+function extractConstraints(description: string, labels: string[]): string[] {
+  const constraints = labels
+    .filter((label) => /constraint|blocked|risk|security|migration|hotfix|no-|do-not/i.test(label))
+    .map((label) => `label:${label}`);
+
+  for (const line of description.split(/\r?\n/)) {
+    if (/constraint|non-goal|out of scope|must not|do not|without/i.test(line)) {
+      const trimmed = line.replace(/^[-*]\s+/, "").trim();
+      if (trimmed) constraints.push(trimmed);
+    }
+  }
+
+  return Array.from(new Set(constraints)).slice(0, 12);
+}
+
+function writeJson(filePath: string, data: unknown): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+export function assertStateShape(state: HarnessState): void {
+  const requiredTopLevel: Array<keyof HarnessState> = [
+    "schemaVersion",
+    "ticketKey",
+    "summary",
+    "description",
+    "linkedTickets",
+    "labels",
+    "acceptanceCriteria",
+    "constraints",
+    "currentStep",
+    "openQuestions",
+    "scout",
+    "implementationPlan",
+    "revisionCount",
+    "revisionLimit",
+    "evidence",
+    "review",
+    "pr",
+    "finalVerdict",
+    "retroNotes",
+    "createdAt",
+    "updatedAt",
+  ];
+
+  for (const key of requiredTopLevel) {
+    if (!(key in state)) throw new Error(`State validation failed: missing field '${key}'.`);
+  }
+
+  if (state.schemaVersion !== 1) {
+    throw new Error(`State validation failed: unsupported schemaVersion '${state.schemaVersion}'.`);
+  }
+  if (!ISSUE_KEY_PATTERN.test(state.ticketKey)) {
+    throw new Error(`State validation failed: invalid ticketKey '${state.ticketKey}'.`);
+  }
+  if (!STEP_ORDER.includes(state.currentStep) && state.currentStep !== "failed") {
+    throw new Error(`State validation failed: invalid currentStep '${state.currentStep}'.`);
+  }
+  if (state.revisionCount < 0 || state.revisionLimit < 0) {
+    throw new Error("State validation failed: revisionCount/revisionLimit must be >= 0.");
+  }
+  if (!Array.isArray(state.evidence) || !Array.isArray(state.acceptanceCriteria)) {
+    throw new Error("State validation failed: evidence and acceptanceCriteria must be arrays.");
+  }
+
+  if (!state.review || typeof state.review !== "object") {
+    throw new Error("State validation failed: review is required.");
+  }
+  if (!Array.isArray(state.review.findings)) {
+    throw new Error("State validation failed: review.findings must be an array.");
+  }
+  const review = ensureReviewShape(state.review);
+  state.review = review;
+  for (const finding of review.findings) {
+    if (!["critical", "warning", "info"].includes(finding.severity)) {
+      throw new Error(`State validation failed: invalid finding severity '${finding.severity}'.`);
+    }
+    if (!finding.category || !finding.message) {
+      throw new Error("State validation failed: finding requires category and message.");
+    }
+  }
+}
+
+export function readState(filePath: string): HarnessState {
+  const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as HarnessState;
+  assertStateShape(parsed);
+  return parsed;
+}
+
+export function statePathFor(cwd: string, issueKey: string): string {
+  return path.join(cwd, STATE_DIR, `${issueKey}.state.json`);
+}
+
+export function stateDirFor(cwd: string): string {
+  return path.join(cwd, STATE_DIR);
+}
+
+export function listStateFiles(cwd: string): string[] {
+  const dir = stateDirFor(cwd);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((name) => name.endsWith(".state.json"))
+    .map((name) => path.join(dir, name))
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+}
+
+export function resolveStatePathFromArg(cwd: string, arg: string): string | undefined {
+  const trimmed = arg.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.endsWith(".json") || trimmed.includes(path.sep)) {
+    return path.isAbsolute(trimmed) ? trimmed : path.resolve(cwd, trimmed);
+  }
+  const issueKey = normalizeIssueKey(trimmed);
+  if (!ISSUE_KEY_PATTERN.test(issueKey)) return undefined;
+  return statePathFor(cwd, issueKey);
+}
+
+export function writeState(filePath: string, state: HarnessState): HarnessState {
+  state.updatedAt = new Date().toISOString();
+  assertStateShape(state);
+  writeJson(filePath, state);
+  return state;
+}
+
+export function createState(issue: JiraIssueSummary): HarnessState {
+  const now = new Date().toISOString();
+  return {
+    schemaVersion: 1,
+    ticketKey: issue.key,
+    summary: issue.title,
+    description: issue.description,
+    linkedTickets: issue.linkedTickets,
+    labels: issue.labels,
+    acceptanceCriteria: Array.from(
+      new Set([
+        ...extractAcceptanceCriteria(issue.description),
+        ...(issue.acceptanceCriteriaExtras ?? []),
+      ]),
+    ).slice(0, 16),
+    constraints: Array.from(
+      new Set([...extractConstraints(issue.description, issue.labels), ...(issue.constraintsExtras ?? [])]),
+    ).slice(0, 16),
+    currentStep: "intake",
+    openQuestions: [],
+    scout: {
+      relevantFiles: [],
+      patterns: [],
+      commands: [],
+      constraints: [],
+      summary: "",
+    },
+    implementationPlan: [],
+    revisionCount: 0,
+    revisionLimit: 2,
+    evidence: [],
+    review: {
+      verdict: "pending",
+      findings: [],
+      summary: "",
+      counts: { critical: 0, warning: 0, info: 0 },
+    },
+    pr: {
+      url: null,
+      draft: true,
+      reviewDecision: null,
+      unresolvedThreads: 0,
+      lastSyncedAt: null,
+      checksFailing: 0,
+      externalRevisionCount: 0,
+      externalRevisionLimit: 2,
+    },
+    finalVerdict: "pending",
+    retroNotes: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function activeStatePathFromSession(ctx: ExtensionContext): string | undefined {
+  const branch = ctx.sessionManager.getBranch();
+  for (let i = branch.length - 1; i >= 0; i--) {
+    const entry = branch[i] as HarnessSessionEntry;
+    if (entry?.type === "custom" && entry?.customType === HARNESS_ENTRY_TYPE) {
+      const statePath = entry?.data?.statePath;
+      if (typeof statePath === "string" && statePath) return statePath;
+    }
+  }
+  return undefined;
+}
+
+export function resolveStatePath(ctx: ExtensionContext, explicit?: string): string {
+  const candidate = explicit?.trim() || activeStatePathFromSession(ctx);
+  if (!candidate) {
+    throw new Error("No active lean BFH state. Start with /bfh PROJ-123 or pass statePath.");
+  }
+  return path.isAbsolute(candidate) ? candidate : path.resolve(ctx.cwd, candidate);
+}
+
+export function assertTransition(state: HarnessState, nextStep: HarnessStep): void {
+  if (!ALLOWED_TRANSITIONS[state.currentStep]?.includes(nextStep)) {
+    throw new Error(`Invalid transition: ${state.currentStep} -> ${nextStep}`);
+  }
+
+  if (state.currentStep === "verify_review" && nextStep === "implement" && state.revisionCount >= state.revisionLimit) {
+    throw new Error(
+      `Revision limit reached (${state.revisionCount}/${state.revisionLimit}). Do not loop back to implement.`,
+    );
+  }
+
+  if (state.currentStep === "pr_review" && nextStep === "implement") {
+    const limit = state.pr.externalRevisionLimit ?? 2;
+    const count = state.pr.externalRevisionCount ?? 0;
+    if (count >= limit) {
+      throw new Error(
+        `External PR review revision limit reached (${count}/${limit}). Do not loop back to implement.`,
+      );
+    }
+  }
+}
+
+export function mergeStatePatch(state: HarnessState, patch: HarnessStatePatch | null | undefined): HarnessState {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return state;
+
+  const forbidden = new Set([
+    "schemaVersion",
+    "ticketKey",
+    "currentStep",
+    "revisionCount",
+    "revisionLimit",
+    "createdAt",
+    "updatedAt",
+  ]);
+  for (const key of Object.keys(patch)) {
+    if (forbidden.has(key)) continue;
+    const value = patch[key];
+
+    if (key === "scout" && value && typeof value === "object") {
+      state.scout = { ...state.scout, ...value };
+    } else if (key === "review" && value && typeof value === "object") {
+      state.review = ensureReviewShape({ ...state.review, ...value });
+    } else if (key === "pr" && value && typeof value === "object") {
+      state.pr = { ...state.pr, ...value };
+    } else if (key in state) {
+      Object.assign(state, { [key]: value });
+    }
+  }
+
+  return state;
+}
+
+export function applyAdvance(state: HarnessState, nextStep: HarnessStep, statePath?: string): void {
+  assertTransition(state, nextStep);
+  if (state.currentStep === "verify_review" && nextStep === "implement") {
+    state.revisionCount += 1;
+    state.review.verdict = "needs_revision";
+  }
+  if (state.currentStep === "pr_review" && nextStep === "implement") {
+    state.pr.externalRevisionCount = (state.pr.externalRevisionCount ?? 0) + 1;
+  }
+  if (nextStep === "done" && statePath) {
+    const marker = readPrReviewMarker(statePath);
+    const blocked = doneBlockedReasons(state, marker);
+    if (blocked.length) throw new Error(blocked.join("; "));
+  }
+  state.currentStep = nextStep;
+  if (nextStep === "done") state.finalVerdict = "success";
+  if (nextStep === "failed") state.finalVerdict = "failed";
+}
+
+export { STEP_ORDER };
