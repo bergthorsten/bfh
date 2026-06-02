@@ -1,32 +1,122 @@
 # BFH — Bergfreunde Harness for Pi
 
-**BFH** is a [Pi](https://github.com/badlogic/pi-mono) extension that turns a Jira ticket into a reviewed pull request with evidence on disk. You run `/bfh PC-120` in the repository you want to change; Pi loads ticket context, writes a state file under `.pi/bfh/`, and guides the agent through scout → implement → verify/review → close → retro with hard transition rules and a two-revision cap.
+BFH is a [Pi](https://github.com/badlogic/pi-mono) extension for turning a Jira ticket into a reviewed draft pull request.
+
+Humans steer, agents execute: you provide the ticket, acceptance criteria, and repository context; BFH gives the agent a small, enforced workflow so the work stays reliable, reviewable, and easier to improve next time.
+
+You start it from the repository you want to change:
+
+```text
+/bfh PC-120
+```
+
+BFH then creates a state file under `.pi/bfh/`, guides the agent through scouting, implementation, review, PR creation, and retrospective notes, and keeps the important evidence on disk instead of only in chat.
 
 Repository: [github.com/bergthorsten/bfh](https://github.com/bergthorsten/bfh)
 
----
+## What You Get
 
-## Install
+- A step-by-step workflow for Jira ticket work.
+- A local state file for every ticket: `.pi/bfh/<TICKET>.state.json`.
+- A read-only scout pass before implementation.
+- A fresh review pass before closing.
+- Close gates for tests, review evidence, and draft PR creation.
+- A short retrospective trail for learnings and harness improvements.
 
-Requires Pi with `@mariozechner/pi-coding-agent` and `typebox` (peer dependencies).
+The short version:
 
-### From GitHub (recommended)
-
-```bash
-pi install git:github.com/bergthorsten/bfh@v0.1.0
+```text
+intake -> scout -> clarify? -> implement -> verify_review -> close -> pr_review -> retro -> done
 ```
 
+## Prerequisites
 
-### Jira credentials
+Install these before installing BFH:
 
-Set environment variables or `~/.pi/agents/jira.json`:
+1. **Node.js 22 or newer**
+
+   Check your version:
+
+   ```bash
+   node --version
+   ```
+
+   If the version is below `v22.0.0`, install a newer Node.js version first.
+
+2. **Pi**
+
+   ```bash
+   npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+   ```
+
+3. **Pi subagents**
+
+   BFH uses subagents for scout and review steps.
+
+   ```bash
+   pi install npm:pi-subagents
+   ```
+
+4. **GitHub CLI for PR creation**
+
+   This is only needed for the close/PR step.
+
+   ```bash
+   gh auth status
+   ```
+
+   If you are not logged in, run:
+
+   ```bash
+   gh auth login
+   ```
+
+## Install BFH
+
+The fastest install path is:
+
+```bash
+curl -fsSL https://github.com/bergthorsten/bfh/releases/latest/download/install.sh | sh
+```
+
+The installer checks for Node.js 22+, installs Pi, installs `pi-subagents`, and installs BFH from the latest GitHub release.
+
+Published GitHub releases automatically upload the repository's root `install.sh` as the `install.sh` release asset used by this URL.
+
+If you prefer to run the Pi install manually:
+
+```bash
+latest_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/bergthorsten/bfh/releases/latest)"
+latest_tag="${latest_url##*/}"
+pi install "git:github.com/bergthorsten/bfh@${latest_tag}"
+```
+
+If no release exists yet, install from the current development branch instead:
+
+```bash
+pi install git:github.com/bergthorsten/bfh
+```
+
+### Local Installer Script
+
+This repository includes the same helper script for local development:
+
+```bash
+./install.sh
+```
+
+It does not install Node.js for you because Node installation differs by operating system and version manager. Install Node 22+ first, then run the script.
+
+## Configure Jira
+
+BFH can fetch Jira ticket details during `/bfh <KEY>`. Configure Jira with environment variables:
 
 ```bash
 export JIRA_BASE_URL="https://portal.bergfreunde.de/jira"
 export JIRA_TOKEN="..."
 ```
 
-Example `~/.pi/agents/jira.json`:
+Or put the same values in `~/.pi/agents/jira.json`:
 
 ```json
 {
@@ -35,354 +125,212 @@ Example `~/.pi/agents/jira.json`:
 }
 ```
 
-For close/PR steps you also need `git`, `gh` (authenticated), and permission to push the current branch.
-
----
-
-## Quick start
-
-From the target repository:
+For custom Jira fields, you can also set:
 
 ```bash
-cd ~/devenv/src
-pi
-/bfh PC-120
+export JIRA_ACCEPTANCE_FIELDS="customfield_12345,customfield_67890"
+export JIRA_CONSTRAINT_FIELDS="customfield_11111"
 ```
 
-1. Jira ticket **PC-120** is fetched (unless `--no-jira`).
-2. State is saved to `.pi/bfh/PC-120.state.json`.
-3. The kickoff prompt appears **in the editor** — add `@path/to/file` context, then press **Enter**.
+If you only want to try BFH without Jira, use `--no-jira`.
 
-Skip the editor and start the agent immediately:
+## Your First Run
+
+1. Open the repository where the ticket should be implemented.
+
+   ```bash
+   cd ~/devenv/my-project
+   pi
+   ```
+
+2. Start BFH with a Jira ticket key.
+
+   ```text
+   /bfh PC-120
+   ```
+
+3. Review the kickoff prompt.
+
+   Pi opens a prepared prompt in the editor. Add useful context, for example:
+
+   ```text
+   Focus on checkout timeout in @src/Service/Checkout/PaymentHandler.php
+   Repro: POST /api/checkout, see @tests/Integration/CheckoutTest.php
+   Do not modify @src/Legacy/
+   ```
+
+4. Press **Enter** to start.
+
+5. Check progress at any time:
+
+   ```text
+   /bfh-status PC-120
+   ```
+
+6. Resume later if needed:
+
+   ```text
+   /bfh-resume PC-120
+   ```
+
+## Common Commands
+
+| Command | What it does |
+| --- | --- |
+| `/bfh <KEY>` | Start a new ticket run. |
+| `/bfh <KEY> --go` | Start immediately without editing the kickoff prompt. |
+| `/bfh <KEY> --no-jira` | Start with only the ticket key, no Jira lookup. |
+| `/bfh-status [KEY\|path]` | Show the current state summary. |
+| `/bfh-list` | List BFH state files in this repository. |
+| `/bfh-resume [KEY\|path]` | Continue an existing run. |
+| `/bfh-scout [KEY\|path]` | Run the scout subagent when the state is in `scout`. |
+| `/bfh-verify [KEY\|path]` | Run the review gate when the state is in `verify_review`. |
+| `/bfh-close [KEY\|path]` | Run close gates and create or reuse a draft PR. |
+| `/bfh-pr-sync [KEY\|path]` | Sync GitHub PR review status into BFH state. |
+| `/bfh-retro [KEY\|path]` | Write retrospective notes and proposed harness amendments. |
+| `/bfh-selftest` | Run the local BFH smoke test inside Pi. |
+
+## How The Workflow Feels
+
+### 1. Intake
+
+BFH reads the Jira ticket, creates `.pi/bfh/<TICKET>.state.json`, writes a short brief, and prepares the kickoff prompt.
+
+### 2. Scout
+
+The agent investigates before editing. Scout output records relevant files, commands, patterns, and risks in the state file.
+
+### 3. Implement
+
+The agent makes the code change. Test evidence should be recorded before review. Close gates later require passing evidence and marker files written by BFH.
+
+### 4. Verify And Review
+
+BFH runs a fresh review pass. Outcomes are:
+
+- `approved`: move forward to close.
+- `needs_revision`: go back to implementation, up to the revision limit.
+- `failed`: stop when the revision budget is exhausted or the review cannot pass.
+
+### 5. Close
+
+BFH checks the state, test markers, review markers, and working tree. If everything is ready, it can create a draft PR with `gh`.
+
+You can set the base branch explicitly:
 
 ```bash
-/bfh PC-120 --go
+export BFH_BASE_BRANCH="main"
 ```
 
-No Jira (offline smoke test):
+### 6. PR Review And Retro
+
+After a draft PR exists, BFH can sync GitHub review status and only move to `done` after approval unless explicitly overridden. The retro step records learnings and proposed harness improvements.
+
+## Files BFH Writes
+
+For a ticket like `PC-120`, expect files like:
+
+```text
+.pi/bfh/PC-120.state.json
+.pi/bfh/PC-120.brief.md
+.pi/bfh/PC-120/tested.json
+.pi/bfh/PC-120/reviewed.json
+.pi/bfh/PC-120/manual-tested.json
+.pi/bfh/PC-120/working-memory.json
+.pi/bfh/PC-120/pr-review.json
+.pi/bfh/principles.md
+.pi/bfh/README.md
+.pi/bfh/amendments/
+```
+
+The state schema lives in `bfh-state.schema.json`.
+
+## Local Development
+
+Run the deterministic smoke test:
 
 ```bash
-/bfh POC-120 --no-jira
+bun run selftest
 ```
 
-Check progress:
-
-```text
-/bfh-status PC-120
-```
-
-Resume later:
-
-```text
-/bfh-resume PC-120
-```
-
-Validate the extension locally (no Jira, no LLM):
+Validate the state schema:
 
 ```bash
-bun extensions/lean_bfh/run-selftest.ts
+bun run validate:schema
 ```
 
-or inside Pi: `/bfh-selftest`
+Run the full local check:
 
----
-
-## How it works
-
-### Phase flow
-
-```text
-intake → scout → clarify? → implement → verify_review
-                              ↳ max 2× back to implement
-       → close → retro → done
+```bash
+bun run check
 ```
 
-| Phase | What happens |
-| ----- | ------------ |
-| `scout` | Read-only recon; `/bfh-scout` or `bfh_state` `scout_auto` |
-| `clarify` | Optional questions in `openQuestions` |
-| `implement` | Code change + test evidence |
-| `verify_review` | Fresh reviewer subagent; may return to `implement`, advance to `close`, or `failed` |
-| `close` | Gates + draft PR via `gh` |
-| `retro` | Notes in state / `LEARNINGS.md` |
-| `done` | Finished |
-
-Illegal step changes are rejected by the `bfh_state` tool (the agent must not edit `currentStep` in the JSON file directly).
-
-### State on disk
-
-```text
-.pi/bfh/
-  PC-120.state.json
-```
-
-Schema: `bfh-state.schema.json` in this repo.
-
-Example excerpt:
-
-```json
-{
-  "schemaVersion": 1,
-  "ticketKey": "PC-120",
-  "summary": "Fix checkout timeout",
-  "currentStep": "implement",
-  "revisionCount": 1,
-  "revisionLimit": 2,
-  "acceptanceCriteria": ["Redirect completes within 30s"],
-  "evidence": [
-    {
-      "type": "test",
-      "passed": true,
-      "summary": "Integration test green",
-      "command": "vendor/bin/phpunit tests/Integration/CheckoutTest.php",
-      "createdAt": "2026-06-02T12:00:00.000Z"
-    }
-  ],
-  "review": { "verdict": "needs_revision", "findings": [], "summary": "..." },
-  "pr": { "url": null, "draft": true },
-  "finalVerdict": "pending"
-}
-```
-
----
-
-## Commands
-
-| Command | Description |
-| ------- | ----------- |
-| `/bfh <KEY> [--no-jira] [--go]` | Start a run; editor prefill unless `--go` |
-| `/bfh-resume [KEY\|path] [--go]` | Continue an existing state file |
-| `/bfh-status [KEY\|path]` | Print status summary |
-| `/bfh-list` | List `.pi/bfh/*.state.json` in cwd |
-| `/bfh-scout [KEY\|path]` | Run scout subagent (step must be `scout`) |
-| `/bfh-verify [KEY\|path]` | Run verify/review subagent (step must be `verify_review`) |
-| `/bfh-close [KEY\|path]` | Close gates + create/reuse draft PR |
-| `/bfh-pr-sync [KEY\|path]` | Pull GitHub PR review status (`gh`) into state |
-| `/bfh-retro [KEY\|path]` | Append `LEARNINGS.md`, stage `.pi/bfh/amendments/` |
-| `/bfh-selftest` | Smoke-test state machine |
-
-**Flags**
-
-| Flag | Meaning |
-| ---- | ------- |
-| `--no-jira` / `-n` | Ticket key only; no Jira API |
-| `--go` / `-g` | Send kickoff immediately (no editor prefill) |
-
----
-
-## In-depth examples
-
-### 1. Start with file context (recommended)
-
-```text
-/bfh PC-120
-```
-
-The editor is prefilled with ticket summary, acceptance criteria, and the phase contract. Add:
-
-```text
-Focus on checkout timeout in @src/Service/Checkout/PaymentHandler.php
-Repro: POST /api/checkout — see @tests/Integration/CheckoutTest.php
-Do not modify @src/Legacy/
-```
-
-Press **Enter**. The agent should call `bfh_state` with `advance` → `scout` before editing production code.
-
-### 2. Scout, then implement
-
-After kickoff, the agent (or you via command) runs scout:
-
-```text
-/bfh-scout PC-120
-```
-
-Or the agent calls:
-
-```json
-{ "action": "scout_auto", "scoutFocus": "payment redirect only" }
-```
-
-`state.scout` is filled with `relevantFiles`, `commands`, `patterns`, and a `summary`.
-
-Advance manually if needed:
-
-```json
-{ "action": "advance", "nextStep": "implement" }
-```
-
-### 3. Record test evidence
-
-```json
-{
-  "action": "evidence",
-  "evidence": {
-    "type": "test",
-    "command": "vendor/bin/phpunit tests/Integration/CheckoutTest.php",
-    "passed": true,
-    "summary": "Checkout redirect test green",
-    "logPath": ".pi/bfh/logs/pc-120-phpunit.log"
-  }
-}
-```
-
-### 4. Verify / review gate
-
-When `currentStep` is `verify_review`:
-
-```text
-/bfh-verify PC-120
-```
-
-Or:
-
-```json
-{
-  "action": "verify_review",
-  "implementationNotes": "Added 30s timeout on Adyen return handler",
-  "reviewFocus": "Session restore vs payment capture race",
-  "maxFiles": 15
-}
-```
-
-Outcomes:
-
-- **Approved** → auto-advance to `close`
-- **Needs revision** and budget left → back to `implement` (`revisionCount` increments)
-- **Needs revision** and budget exhausted → `failed`
-
-`diff_context` supplies compact git snippets without dumping whole files:
-
-```json
-{ "action": "diff_context", "maxFiles": 20 }
-```
-
-### 5. Draft PR
-
-When review is approved and test evidence exists:
-
-```text
-/bfh-close PC-120
-```
-
-Dry-run first via the tool:
-
-```json
-{
-  "action": "close_check"
-}
-```
-
-```json
-{
-  "action": "close_create",
-  "prTitle": "PC-120: Fix checkout timeout on Adyen redirect",
-  "dryRun": true
-}
-```
-
-Then without `dryRun` to push and run `gh pr create --draft`.
-
-### 6. Clarify open questions
-
-```json
-{
-  "action": "question",
-  "question": {
-    "id": "timeout-value",
-    "question": "Should the redirect timeout be 30s or 60s?",
-    "answer": "30s per PC-120 comment"
-  }
-}
-```
-
-Patch other fields (not `currentStep`):
-
-```json
-{
-  "action": "patch",
-  "patch": {
-    "implementationPlan": [
-      "Add timeout constant",
-      "Wire into PaymentHandler",
-      "Extend integration test"
-    ]
-  }
-}
-```
-
-### 7. Status output
-
-```text
-/bfh-status PC-120
-```
-
-Example:
-
-```text
-# PC-120 — Fix checkout timeout on Adyen redirect
-
-State: .pi/bfh/PC-120.state.json
-Step: implement
-Revision: 1/2
-Review: needs_revision
-Evidence: 3
-PR: (none)
-Verdict: pending
-
-## Acceptance criteria
-- Redirect completes within 30s
-
-## Latest evidence
-- test passed=true command=vendor/bin/phpunit ...: Integration test green
-```
-
----
-
-## `bfh_state` tool reference
-
-Registered for the agent as **`bfh_state`**. Defaults `statePath` to the active session’s `.pi/bfh` file.
-
-| Action | Purpose |
-| ------ | ------- |
-| `read` | Full state JSON |
-| `advance` | `nextStep`: legal transition only |
-| `patch` | Update non-guarded fields |
-| `evidence` | Append evidence item |
-| `question` | Upsert `openQuestions` |
-| `verdict` | Set `finalVerdict` |
-| `diff_context` | Git diff snippets for review |
-| `scout_auto` | Subagent scout → `state.scout` |
-| `verify_review` | Subagent review + auto-transition |
-| `close_check` | Readiness + PR body, no PR |
-| `close_create` | Gates, push, draft PR |
-
-Guarded fields (use `advance`, not `patch`): `currentStep`, `revisionCount`, `revisionLimit`, `schemaVersion`, `ticketKey`, `createdAt`, `updatedAt`.
-
----
-
-## Repository layout
+## Repository Layout
 
 ```text
 bfh/
-  package.json              # pi.extensions → ./extensions/lean_bfh
+  package.json
   bfh-state.schema.json
+  install.sh
+  agents/
+    scout.md
+    reviewer.md
+    closer.md
   extensions/lean_bfh/
-    index.ts                # extension entry
-    commands.ts             # /bfh, /bfh-status, …
-    tool.ts                 # bfh_state
-    state.ts                # transitions + persistence
-    jira.ts                 # ticket fetch for /bfh intake
-    subagent.ts             # scout/review subprocess runners
-    close.ts                # PR gates + gh
-    kickoff.ts              # editor prefill vs --go
-    …
+    index.ts
+    commands.ts
+    tool.ts
+    state.ts
+    jira.ts
+    subagent.ts
+    close.ts
+    kickoff.ts
 ```
 
----
+## Troubleshooting
 
-## Principles
+### `node --version` is below 22
 
-- **State file beats chat** — humans and reviewers read `.pi/bfh/*.state.json`.
-- **Transitions are enforced in code** — not by prompt politeness alone.
-- **Fresh context for review** — verify/review runs in an isolated subagent process.
-- **You steer at kickoff** — default editor prefill with `@` files; `--go` when the plan is already clear.
+Install Node.js 22 or newer, then rerun the install steps.
+
+### `pi: command not found`
+
+Install Pi:
+
+```bash
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+```
+
+Then open a new shell and try:
+
+```bash
+pi --help
+```
+
+### Jira lookup fails
+
+Check `JIRA_BASE_URL` and `JIRA_TOKEN`, or start without Jira:
+
+```text
+/bfh PC-120 --no-jira
+```
+
+### PR creation fails
+
+Check that `gh` is installed and authenticated:
+
+```bash
+gh auth status
+```
+
+Also make sure you have permission to push the current branch and that the working tree is clean before close.
+
+## Design Principles
+
+- State on disk beats memory in chat.
+- Humans steer; agents execute.
+- Phase transitions are enforced by code.
+- Review runs with fresh context.
+- The kickoff is a map, not a manual: add only the concrete file and repo context the agent needs.
+- Instructions decay; enforcement persists.
+- Knowledge compounds across runs through retrospectives and harness amendments.
