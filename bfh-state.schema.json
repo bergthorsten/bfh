@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lean BFH State",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "ticketKey",
+    "summary",
+    "description",
+    "linkedTickets",
+    "labels",
+    "acceptanceCriteria",
+    "constraints",
+    "currentStep",
+    "openQuestions",
+    "scout",
+    "implementationPlan",
+    "revisionCount",
+    "revisionLimit",
+    "evidence",
+    "review",
+    "pr",
+    "finalVerdict",
+    "retroNotes",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "ticketKey": { "type": "string", "pattern": "^[A-Z][A-Z0-9]+-[0-9]+$" },
+    "summary": { "type": "string" },
+    "description": { "type": "string" },
+    "linkedTickets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "type"],
+        "properties": {
+          "key": { "type": "string" },
+          "type": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "labels": { "type": "array", "items": { "type": "string" } },
+    "acceptanceCriteria": { "type": "array", "items": { "type": "string" } },
+    "constraints": { "type": "array", "items": { "type": "string" } },
+    "currentStep": {
+      "type": "string",
+      "enum": ["intake", "scout", "clarify", "implement", "verify_review", "close", "retro", "done", "failed"]
+    },
+    "openQuestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "question"],
+        "properties": {
+          "id": { "type": "string" },
+          "question": { "type": "string" },
+          "answer": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "scout": {
+      "type": "object",
+      "required": ["relevantFiles", "patterns", "commands", "constraints", "summary"],
+      "properties": {
+        "relevantFiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "reason"],
+            "properties": {
+              "path": { "type": "string" },
+              "reason": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "patterns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "description"],
+            "properties": {
+              "name": { "type": "string" },
+              "file": { "type": "string" },
+              "description": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "commands": { "type": "array", "items": { "type": "string" } },
+        "constraints": { "type": "array", "items": { "type": "string" } },
+        "summary": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "implementationPlan": { "type": "array", "items": { "type": "string" } },
+    "revisionCount": { "type": "integer", "minimum": 0 },
+    "revisionLimit": { "type": "integer", "minimum": 0 },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "summary", "createdAt"],
+        "properties": {
+          "type": { "type": "string", "enum": ["test", "manual", "review", "pr", "note"] },
+          "command": { "type": "string" },
+          "passed": { "type": "boolean" },
+          "summary": { "type": "string" },
+          "logPath": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "review": {
+      "type": "object",
+      "required": ["verdict", "findings", "summary"],
+      "properties": {
+        "verdict": { "type": "string", "enum": ["pending", "approved", "needs_revision", "failed"] },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["severity", "category", "message"],
+            "properties": {
+              "severity": { "type": "string", "enum": ["critical", "warning", "info"] },
+              "category": { "type": "string" },
+              "message": { "type": "string" },
+              "file": { "type": "string" },
+              "line": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "summary": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "pr": {
+      "type": "object",
+      "required": ["url", "draft"],
+      "properties": {
+        "url": { "type": ["string", "null"] },
+        "draft": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "finalVerdict": { "type": "string", "enum": ["pending", "success", "failed"] },
+    "retroNotes": { "type": "array", "items": { "type": "string" } },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}
