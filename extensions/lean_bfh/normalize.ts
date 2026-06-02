@@ -121,7 +121,7 @@ export function normalizeReviewFromAgentResult(
   fallbackText: string,
 ): HarnessReview {
   if (!agentResultParsedOk(envelope)) {
-    return normalizeReviewFromTextLegacy(fallbackText);
+    return normalizeMalformedReview(fallbackText, envelope.parseError ?? undefined);
   }
 
   const findingsEnv = envelope.findings as ReviewerFindingsEnvelope | undefined;
@@ -170,7 +170,24 @@ export function normalizeReviewFromText(reviewText: string): HarnessReview {
   if (agentResultParsedOk(envelope)) {
     return normalizeReviewFromAgentResult(envelope, reviewText);
   }
-  return normalizeReviewFromTextLegacy(reviewText);
+  return normalizeMalformedReview(reviewText, envelope.parseError ?? undefined);
+}
+
+function normalizeMalformedReview(reviewText: string, parseError?: string): HarnessReview {
+  const text = reviewText.trim();
+  const summary = text
+    ? `Reviewer output did not contain a valid AGENT_RESULT block and cannot be used as approval.\n\n${truncate(text, 2500)}`
+    : "Reviewer returned no content and cannot be used as approval.";
+
+  return buildReviewResult({
+    verdict: "failed",
+    findings: [{
+      severity: "critical",
+      category: "agent-protocol",
+      message: parseError ? `Reviewer protocol error: ${parseError}` : "Reviewer output was not valid AGENT_RESULT.",
+    }],
+    summary: truncate(summary, 3000),
+  });
 }
 
 function normalizeScoutFromTextLegacy(scoutText: string): HarnessState["scout"] {
@@ -242,44 +259,3 @@ function normalizeScoutFromTextLegacy(scoutText: string): HarnessState["scout"] 
   };
 }
 
-function normalizeReviewFromTextLegacy(reviewText: string): HarnessReview {
-  const text = reviewText.trim();
-  if (!text) {
-    return buildReviewResult({
-      verdict: "failed",
-      findings: [{ severity: "critical", category: "review", message: "Fresh review returned no content." }],
-      summary: "Fresh review produced no textual output.",
-    });
-  }
-
-  const lower = text.toLowerCase();
-  const needsRevision = /(needs\s+revision|must\s+fix|blocking|blocker|not\s+ready)/i.test(lower);
-  const explicitlyApproved = /(approved|approve|ready\s+to\s+merge|no\s+major\s+issues)/i.test(lower);
-
-  const findings: HarnessFinding[] = [];
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  for (const line of lines) {
-    const bullet = line.match(/^[-*]\s+(.*)$/)?.[1] || line;
-    if (/(critical|blocker|must\s+fix|security)/i.test(bullet)) {
-      findings.push({ severity: "critical", category: "review", message: bullet });
-      continue;
-    }
-    if (/(warning|should\s+fix|risk|follow-up)/i.test(bullet)) {
-      findings.push({ severity: "warning", category: "review", message: bullet });
-      continue;
-    }
-    if (/\b(info|nit|optional)\b/i.test(bullet)) {
-      findings.push({ severity: "info", category: "review", message: bullet });
-    }
-  }
-
-  let verdict: HarnessReview["verdict"] = "approved";
-  if (findings.some((f) => f.severity === "critical")) verdict = "needs_revision";
-  else if (needsRevision && !explicitlyApproved) verdict = "needs_revision";
-
-  return buildReviewResult({
-    verdict,
-    findings: findings.slice(0, 40),
-    summary: truncate(text, 3000),
-  });
-}

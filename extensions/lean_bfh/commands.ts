@@ -404,11 +404,12 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       try {
         const snapshot = syncPrReviewFromGitHub(ctx.cwd, prUrl);
         applyPrSnapshotToState(state, snapshot);
-        writePrReviewMarker(statePath, state, snapshot);
         const { transition, outcome } = resolvePrReviewTransitionFromOutcome(state, snapshot);
 
+        let advanced = false;
         if (state.currentStep === "pr_review" && transition !== state.currentStep) {
           applyAdvance(state, transition, statePath);
+          advanced = true;
         }
 
         state.evidence.push({
@@ -417,7 +418,8 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
           createdAt: new Date().toISOString(),
         });
         writeState(statePath, state);
-        appendBriefProgress(statePath, "pr_review", `pr_sync: ${outcome}`);
+        writePrReviewMarker(statePath, state, snapshot);
+        appendBriefProgress(statePath, "pr_review", `pr_sync: ${outcome}${advanced ? `, now ${state.currentStep}` : ""}`);
 
         ctx.ui.notify(
           [stateToolText(statePath, state), "", formatPrReviewSummary(snapshot)].join("\n"),

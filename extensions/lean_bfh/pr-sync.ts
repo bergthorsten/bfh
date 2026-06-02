@@ -41,6 +41,29 @@ export type PrReviewMarker = {
   writtenBy: string;
 };
 
+type ReviewThreadsResponse = {
+  data?: {
+    repository?: {
+      pullRequest?: {
+        reviewThreads?: {
+          nodes?: Array<{
+            isResolved?: boolean;
+            path?: string;
+            line?: number;
+            comments?: {
+              nodes?: Array<{
+                body?: string;
+                author?: { login?: string };
+                createdAt?: string;
+              }>;
+            };
+          }>;
+        };
+      };
+    };
+  };
+};
+
 export function prReviewMarkerPath(statePath: string): string {
   return `${ticketMarkerDir(statePath)}/pr-review.json`;
 }
@@ -59,6 +82,65 @@ function runGh(cwd: string, args: string[]): string {
   } catch (error) {
     throw new Error(`gh ${args.join(" ")} failed: ${formatExecError(error)}`);
   }
+}
+
+function syncUnresolvedReviewThreads(
+  cwd: string,
+  parsed: { owner: string; repo: string; number: number },
+): { unresolvedThreads: number; threads: PrReviewThread[] } | null {
+  const query = `
+    query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) {
+        pullRequest(number: $number) {
+          reviewThreads(first: 100) {
+            nodes {
+              isResolved
+              path
+              line
+              comments(first: 1) {
+                nodes {
+                  body
+                  author { login }
+                  createdAt
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const raw = runGh(cwd, [
+    "api",
+    "graphql",
+    "-f",
+    `owner=${parsed.owner}`,
+    "-f",
+    `name=${parsed.repo}`,
+    "-F",
+    `number=${parsed.number}`,
+    "-f",
+    `query=${query}`,
+  ]);
+  const response = JSON.parse(raw) as ReviewThreadsResponse;
+  const nodes = response.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+  const unresolved = nodes.filter((thread) => thread.isResolved === false);
+  const threads = unresolved
+    .map((thread) => {
+      const firstComment = thread.comments?.nodes?.find((comment) => comment.body?.trim());
+      if (!firstComment?.body?.trim()) return null;
+      return {
+        path: thread.path,
+        line: thread.line,
+        body: firstComment.body.trim().slice(0, 500),
+        author: firstComment.author?.login,
+        createdAt: firstComment.createdAt,
+      };
+    })
+    .filter((thread): thread is PrReviewThread => thread !== null);
+
+  return { unresolvedThreads: unresolved.length, threads };
 }
 
 export function parseGitHubPrUrl(url: string): { owner: string; repo: string; number: number } | null {
@@ -177,7 +259,16 @@ export function syncPrReviewFromGitHub(cwd: string, prUrl: string): PrReviewSnap
     reviewDecision = "CHANGES_REQUESTED";
   }
 
-  const unresolvedThreads = reviewCommentCount;
+  let unresolvedThreads = 0;
+  try {
+    const reviewThreads = syncUnresolvedReviewThreads(cwd, parsed);
+    if (reviewThreads) {
+      unresolvedThreads = reviewThreads.unresolvedThreads;
+      threads.splice(0, threads.length, ...reviewThreads.threads.slice(0, 20));
+    }
+  } catch {
+    // If thread sync is unavailable, do not treat historical comments as unresolved blockers.
+  }
 
   return {
     prUrl,

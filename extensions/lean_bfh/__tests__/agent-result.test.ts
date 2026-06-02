@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { AGENT_RESULT_END, AGENT_RESULT_START, agentResultParsedOk, parseAgentResult } from "../agent-result.ts";
+import { normalizeReviewFromText } from "../normalize.ts";
 
 describe("parseAgentResult", () => {
   test("parses valid block using last start delimiter", () => {
@@ -28,5 +29,12 @@ describe("parseAgentResult", () => {
     const parsed = parseAgentResult(raw);
     expect(agentResultParsedOk(parsed)).toBe(false);
     expect(parsed.parseError).toContain("invalid status");
+  });
+
+  test("malformed reviewer output cannot approve gate", () => {
+    const review = normalizeReviewFromText("Approved, no major issues found.");
+    expect(review.verdict).toBe("failed");
+    expect(review.findings.some((finding) => finding.severity === "critical")).toBe(true);
+    expect(review.summary).toContain("valid AGENT_RESULT");
   });
 });

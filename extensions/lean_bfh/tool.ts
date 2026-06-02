@@ -351,12 +351,13 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
         }
 
         applyPrSnapshotToState(state, snapshot);
-        const marker = writePrReviewMarker(statePath, state, snapshot);
         const { transition, outcome } = resolvePrReviewTransitionFromOutcome(state, snapshot);
 
         const autoAdvance = params.autoAdvancePrReview !== false;
+        let advanced = false;
         if (autoAdvance && state.currentStep === "pr_review" && transition !== state.currentStep) {
           applyAdvance(state, transition, statePath);
+          advanced = true;
         }
 
         state.evidence.push({
@@ -365,7 +366,8 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
           createdAt: new Date().toISOString(),
         });
         writeState(statePath, state);
-        appendBriefProgress(statePath, "pr_review", `pr_sync → ${outcome}${transition !== state.currentStep ? `, now ${state.currentStep}` : ""}`);
+        const marker = writePrReviewMarker(statePath, state, snapshot);
+        appendBriefProgress(statePath, "pr_review", `pr_sync → ${outcome}${advanced ? `, now ${state.currentStep}` : ""}`);
 
         return {
           content: [{
@@ -374,7 +376,7 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
               stateToolText(statePath, state),
               "",
               `pr_sync outcome: ${outcome}`,
-              transition !== state.currentStep ? `Advanced to: ${state.currentStep}` : `Stay on: ${state.currentStep}`,
+              advanced ? `Advanced to: ${state.currentStep}` : `Stay on: ${state.currentStep}`,
               "",
               formatPrReviewSummary(snapshot),
             ].join("\n"),
