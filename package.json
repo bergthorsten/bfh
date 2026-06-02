@@ -1,18 +1,25 @@
 {
-  "name": "@your-org/pi-team-tools",
+  "name": "@bergthorsten/bfh",
   "version": "0.1.0",
   "private": true,
-  "description": "Team Pi extensions bundle (Jira + DB query)",
+  "description": "Pi extension: Jira ticket → verified PR harness (/bfh)",
   "keywords": ["pi-package"],
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": ["./extensions/lean_bfh"]
   },
-  "dependencies": {
-    "mysql2": "^3.15.1"
+  "scripts": {
+    "test": "bun test extensions/lean_bfh/__tests__",
+    "selftest": "bun extensions/lean_bfh/run-selftest.ts",
+    "validate:schema": "bun extensions/lean_bfh/validate-schema.ts",
+    "check": "bun run test && bun run selftest && bun run validate:schema"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-ai": "*",
     "typebox": "*"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
   }
 }

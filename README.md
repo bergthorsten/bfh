@@ -1,155 +1,336 @@
-# pi-team-tools
+# BFH — Bergfreunde Harness for Pi
 
-Starter bundle for team-shared Pi extensions.
+BFH is a [Pi](https://github.com/badlogic/pi-mono) extension for turning a Jira ticket into a reviewed draft pull request.
 
-Included tools:
-- `jira_myself`
-- `jira_get_issue`
-- `jira_search`
-- `bf_shop_db_query`
-- `build_questionnaire`
-- `run_fresh_review`
-- `bfh_state`
+Humans steer, agents execute: you provide the ticket, acceptance criteria, and repository context; BFH gives the agent a small, enforced workflow so the work stays reliable, reviewable, and easier to improve next time.
 
-Included commands:
-- `/build <TICKET-123>` — existing Jira ticket → production workflow
-- `/bfh <TICKET-123> [--no-jira]` — lean BFH POC: Jira intake (or local/offline mode) → state file → scout/clarify/implement/verify-review/close/retro loop
-- `/bfh-status [TICKET-123|state-path]` — show compact current state
-- `/bfh-list` — list local harness state files
-- `/bfh-resume [TICKET-123|state-path]` — resume an existing run
-- `/bfh-scout [TICKET-123|state-path]` — run automated read-only scout subagent and patch `state.scout`
-- `/bfh-verify [TICKET-123|state-path]` — run the combined verify/review helper and auto-transition
-- `/bfh-close [TICKET-123|state-path]` — enforce close gates and create/reuse a draft PR
-- `/bfh-selftest` — run local deterministic harness smoke checks
+You start it from the repository you want to change:
 
-## Team-ready repo setup (already included)
-
-This starter now includes:
-
-- `.pi/settings.json` with:
-  - `"packages": [".."]` (loads this package from repo root)
-  - `"skills": ["../.claude/skills"]` (loads shared Claude-style skills)
-- `.claude/skills/` folder for shared skills
-
-So teammates can clone this repo and run `pi` directly.
-
-## Install
-
-### From git (published package usage)
-
-```bash
-pi install git:git@github.com:your-org/pi-team-tools.git
-# or
-pi install https://github.com/your-org/pi-team-tools
+```text
+/bfh PC-120
 ```
 
-### Local test before publishing
+BFH then creates a state file under `.pi/bfh/`, guides the agent through scouting, implementation, review, PR creation, and retrospective notes, and keeps the important evidence on disk instead of only in chat.
 
-```bash
-pi install /absolute/path/to/pi-team-tools-starter
+Repository: [github.com/bergthorsten/bfh](https://github.com/bergthorsten/bfh)
+
+## What You Get
+
+- A step-by-step workflow for Jira ticket work.
+- A local state file for every ticket: `.pi/bfh/<TICKET>.state.json`.
+- A read-only scout pass before implementation.
+- A fresh review pass before closing.
+- Close gates for tests, review evidence, and draft PR creation.
+- A short retrospective trail for learnings and harness improvements.
+
+The short version:
+
+```text
+intake -> scout -> clarify? -> implement -> verify_review -> close -> pr_review -> retro -> done
 ```
 
-## Using this package from another project repo
+## Prerequisites
 
-In the consuming repo, create `.pi/settings.json`:
+Install these before installing BFH:
+
+1. **Node.js 22 or newer**
+
+   Check your version:
+
+   ```bash
+   node --version
+   ```
+
+   If the version is below `v22.0.0`, install a newer Node.js version first.
+
+2. **Pi**
+
+   ```bash
+   npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+   ```
+
+3. **Pi subagents**
+
+   BFH uses subagents for scout and review steps.
+
+   ```bash
+   pi install npm:pi-subagents
+   ```
+
+4. **GitHub CLI for PR creation**
+
+   This is only needed for the close/PR step.
+
+   ```bash
+   gh auth status
+   ```
+
+   If you are not logged in, run:
+
+   ```bash
+   gh auth login
+   ```
+
+## Install BFH
+
+The fastest install path is:
+
+```bash
+curl -fsSL https://github.com/bergthorsten/bfh/releases/latest/download/install.sh | sh
+```
+
+The installer checks for Node.js 22+, installs Pi, installs `pi-subagents`, and installs BFH from the latest GitHub release.
+
+Published GitHub releases automatically upload the repository's root `install.sh` as the `install.sh` release asset used by this URL.
+
+If you prefer to run the Pi install manually:
+
+```bash
+latest_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/bergthorsten/bfh/releases/latest)"
+latest_tag="${latest_url##*/}"
+pi install "git:github.com/bergthorsten/bfh@${latest_tag}"
+```
+
+If no release exists yet, install from the current development branch instead:
+
+```bash
+pi install git:github.com/bergthorsten/bfh
+```
+
+### Local Installer Script
+
+This repository includes the same helper script for local development:
+
+```bash
+./install.sh
+```
+
+It does not install Node.js for you because Node installation differs by operating system and version manager. Install Node 22+ first, then run the script.
+
+## Configure Jira
+
+BFH can fetch Jira ticket details during `/bfh <KEY>`. Configure Jira with environment variables:
+
+```bash
+export JIRA_BASE_URL="https://portal.bergfreunde.de/jira"
+export JIRA_TOKEN="..."
+```
+
+Or put the same values in `~/.pi/agents/jira.json`:
 
 ```json
 {
-  "packages": [
-    "git:github.com/your-org/pi-team-tools@v0.1.0"
-  ],
-  "skills": [
-    "../.claude/skills"
-  ]
+  "JIRA_BASE_URL": "https://jira.your-company.com",
+  "JIRA_TOKEN": "..."
 }
 ```
 
-Then commit these folders in that consuming repo:
-
-- `.pi/settings.json`
-- `.claude/skills/`
-
-## Required environment
-
-### Jira
+For custom Jira fields, you can also set:
 
 ```bash
-export JIRA_BASE_URL="https://jira.your-company.com"
-export JIRA_TOKEN="..."
-# optional:
-export JIRA_AUTH_MODE="bearer"   # or "basic"
-export JIRA_EMAIL="you@company.com"   # required for basic mode
+export JIRA_ACCEPTANCE_FIELDS="customfield_12345,customfield_67890"
+export JIRA_CONSTRAINT_FIELDS="customfield_11111"
 ```
 
-### DB (for `bf_shop_db_query`)
+If you only want to try BFH without Jira, use `--no-jira`.
 
-Supported vars:
-- `DB_HOST` (optional, default `localhost`)
-- `DB_PORT` (optional, default `3306`)
-- `DB_NAME` or `DB_DATABASE`
-- `DB_USER` or `DB_USERNAME`
-- `DB_PASSWORD`
+## Your First Run
 
-Env source precedence in current tool:
-1. `envFile` tool argument
-2. `DB_ENV_FILE`
-3. `.env`
-4. `shop/source/.env`
-5. `source/.env`
+1. Open the repository where the ticket should be implemented.
 
-Exported env vars override `.env` values.
-
-## Lean BFH POC
-
-Start it from the target repository:
-
-```bash
-pi
-/bfh PC-120
-# local/offline smoke start without Jira credentials:
-/bfh POC-120 --no-jira
-```
-
-The command fetches the Jira ticket, writes a compact state record to:
-
-```text
-.pi/bfh/<TICKET>.state.json
-```
-
-State schema reference:
-
-```text
-bfh-state.schema.json
-```
-
-The active agent is then prompted to follow the deterministic phase contract:
-
-```text
-intake → scout → clarify? → implement → verify_review
-       ↳ max 2 repair loops back to implement
-       → close → retro → done
-```
-
-`bfh_state` is the state gate. It records patches/evidence and enforces legal `advance` transitions plus the two-cycle revision cap. Its `diff_context` action returns compact git diff/status snippets for verify/review without dumping whole files. Its `scout_auto` action runs a fresh read-only scout subagent and patches `state.scout`. Its `verify_review` action runs a fresh reviewer subagent, normalizes findings into `state.review`, records review evidence, and auto-transitions to `implement`, `close`, or `failed`. Its `close_check` action verifies readiness and returns a PR body without creating anything. Its `close_create` action enforces close gates, creates/reuses a draft PR via `gh`, records PR evidence, and can auto-advance `close -> retro`.
-
-For quick validation that the extension wiring and transition guards work locally, run:
-
-```bash
-/bfh-selftest
-```
-
-## Dev notes
-
-- `mysql2` is declared in `dependencies` and is installed automatically when installed as a Pi package.
-- Pi core extension imports (`@mariozechner/pi-coding-agent`, `typebox`) are peer dependencies.
-
-## Publish checklist
-
-1. Create GitHub repo (`your-org/pi-team-tools`)
-2. Copy this folder contents into that repo
-3. Commit + push
-4. Tag a release (for pinned installs), e.g. `v0.1.0`
-5. Teammates install with:
    ```bash
-   pi install git:git@github.com:your-org/pi-team-tools.git@v0.1.0
+   cd ~/devenv/my-project
+   pi
    ```
+
+2. Start BFH with a Jira ticket key.
+
+   ```text
+   /bfh PC-120
+   ```
+
+3. Review the kickoff prompt.
+
+   Pi opens a prepared prompt in the editor. Add useful context, for example:
+
+   ```text
+   Focus on checkout timeout in @src/Service/Checkout/PaymentHandler.php
+   Repro: POST /api/checkout, see @tests/Integration/CheckoutTest.php
+   Do not modify @src/Legacy/
+   ```
+
+4. Press **Enter** to start.
+
+5. Check progress at any time:
+
+   ```text
+   /bfh-status PC-120
+   ```
+
+6. Resume later if needed:
+
+   ```text
+   /bfh-resume PC-120
+   ```
+
+## Common Commands
+
+| Command | What it does |
+| --- | --- |
+| `/bfh <KEY>` | Start a new ticket run. |
+| `/bfh <KEY> --go` | Start immediately without editing the kickoff prompt. |
+| `/bfh <KEY> --no-jira` | Start with only the ticket key, no Jira lookup. |
+| `/bfh-status [KEY\|path]` | Show the current state summary. |
+| `/bfh-list` | List BFH state files in this repository. |
+| `/bfh-resume [KEY\|path]` | Continue an existing run. |
+| `/bfh-scout [KEY\|path]` | Run the scout subagent when the state is in `scout`. |
+| `/bfh-verify [KEY\|path]` | Run the review gate when the state is in `verify_review`. |
+| `/bfh-close [KEY\|path]` | Run close gates and create or reuse a draft PR. |
+| `/bfh-pr-sync [KEY\|path]` | Sync GitHub PR review status into BFH state. |
+| `/bfh-retro [KEY\|path]` | Write retrospective notes and proposed harness amendments. |
+| `/bfh-selftest` | Run the local BFH smoke test inside Pi. |
+
+## How The Workflow Feels
+
+### 1. Intake
+
+BFH reads the Jira ticket, creates `.pi/bfh/<TICKET>.state.json`, writes a short brief, and prepares the kickoff prompt.
+
+### 2. Scout
+
+The agent investigates before editing. Scout output records relevant files, commands, patterns, and risks in the state file.
+
+### 3. Implement
+
+The agent makes the code change. Test evidence should be recorded before review. Close gates later require passing evidence and marker files written by BFH.
+
+### 4. Verify And Review
+
+BFH runs a fresh review pass. Outcomes are:
+
+- `approved`: move forward to close.
+- `needs_revision`: go back to implementation, up to the revision limit.
+- `failed`: stop when the revision budget is exhausted or the review cannot pass.
+
+### 5. Close
+
+BFH checks the state, test markers, review markers, and working tree. If everything is ready, it can create a draft PR with `gh`.
+
+You can set the base branch explicitly:
+
+```bash
+export BFH_BASE_BRANCH="main"
+```
+
+### 6. PR Review And Retro
+
+After a draft PR exists, BFH can sync GitHub review status and only move to `done` after approval unless explicitly overridden. The retro step records learnings and proposed harness improvements.
+
+## Files BFH Writes
+
+For a ticket like `PC-120`, expect files like:
+
+```text
+.pi/bfh/PC-120.state.json
+.pi/bfh/PC-120.brief.md
+.pi/bfh/PC-120/tested.json
+.pi/bfh/PC-120/reviewed.json
+.pi/bfh/PC-120/manual-tested.json
+.pi/bfh/PC-120/working-memory.json
+.pi/bfh/PC-120/pr-review.json
+.pi/bfh/principles.md
+.pi/bfh/README.md
+.pi/bfh/amendments/
+```
+
+The state schema lives in `bfh-state.schema.json`.
+
+## Local Development
+
+Run the deterministic smoke test:
+
+```bash
+bun run selftest
+```
+
+Validate the state schema:
+
+```bash
+bun run validate:schema
+```
+
+Run the full local check:
+
+```bash
+bun run check
+```
+
+## Repository Layout
+
+```text
+bfh/
+  package.json
+  bfh-state.schema.json
+  install.sh
+  agents/
+    scout.md
+    reviewer.md
+    closer.md
+  extensions/lean_bfh/
+    index.ts
+    commands.ts
+    tool.ts
+    state.ts
+    jira.ts
+    subagent.ts
+    close.ts
+    kickoff.ts
+```
+
+## Troubleshooting
+
+### `node --version` is below 22
+
+Install Node.js 22 or newer, then rerun the install steps.
+
+### `pi: command not found`
+
+Install Pi:
+
+```bash
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+```
+
+Then open a new shell and try:
+
+```bash
+pi --help
+```
+
+### Jira lookup fails
+
+Check `JIRA_BASE_URL` and `JIRA_TOKEN`, or start without Jira:
+
+```text
+/bfh PC-120 --no-jira
+```
+
+### PR creation fails
+
+Check that `gh` is installed and authenticated:
+
+```bash
+gh auth status
+```
+
+Also make sure you have permission to push the current branch and that the working tree is clean before close.
+
+## Design Principles
+
+- State on disk beats memory in chat.
+- Humans steer; agents execute.
+- Phase transitions are enforced by code.
+- Review runs with fresh context.
+- The kickoff is a map, not a manual: add only the concrete file and repo context the agent needs.
+- Instructions decay; enforcement persists.
+- Knowledge compounds across runs through retrospectives and harness amendments.

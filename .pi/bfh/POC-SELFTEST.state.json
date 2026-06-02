@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "ticketKey": "POC-1",
+  "summary": "Self-test harness state",
+  "description": "Acceptance criteria:\n- state transitions are guarded",
+  "linkedTickets": [],
+  "labels": [],
+  "acceptanceCriteria": [
+    "state transitions are guarded"
+  ],
+  "constraints": [],
+  "currentStep": "verify_review",
+  "openQuestions": [],
+  "scout": {
+    "relevantFiles": [],
+    "patterns": [],
+    "commands": [],
+    "constraints": [],
+    "summary": ""
+  },
+  "implementationPlan": [],
+  "revisionCount": 2,
+  "revisionLimit": 2,
+  "evidence": [],
+  "review": {
+    "verdict": "needs_revision",
+    "findings": [],
+    "summary": ""
+  },
+  "pr": {
+    "url": null,
+    "draft": true
+  },
+  "finalVerdict": "pending",
+  "retroNotes": [],
+  "createdAt": "2026-06-02T18:09:58.890Z",
+  "updatedAt": "2026-06-02T18:09:58.891Z"
+}
