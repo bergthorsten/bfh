@@ -91,6 +91,9 @@ export function evaluateCloseReadiness(
 
   if (state.currentStep !== "close") reasons.push(`currentStep is ${state.currentStep}, expected close`);
   if (state.review.verdict !== "approved") reasons.push(`review verdict is ${state.review.verdict}, expected approved`);
+  if (!state.human.autonomous && state.human.preClose.status !== "approved") {
+    reasons.push("human pre-close approval missing (set via bfh_state action human_gate)");
+  }
   if (closeBlockedByCriticalFindings(state)) {
     reasons.push(
       `${counts.critical} critical review finding(s) remain (set review.allowCloseDespiteCritical to override)`,
@@ -131,6 +134,11 @@ export function evaluateCloseReadiness(
     "",
     "## Review",
     `Findings: ${formatReviewCountsLine(state.review)}`,
+    "",
+    "## Human checkpoints",
+    `- mode: ${state.human.autonomous ? "autonomous (human gates bypassed)" : "human-in-loop"}`,
+    `- pre-implement: ${state.human.preImplement.status}${state.human.preImplement.comment ? ` — ${state.human.preImplement.comment}` : ""}`,
+    `- pre-close: ${state.human.preClose.status}${state.human.preClose.comment ? ` — ${state.human.preClose.comment}` : ""}`,
     ...(rubricLines.length ? ["", "### Rubric", ...rubricLines] : []),
     "",
     "## Remaining risk",

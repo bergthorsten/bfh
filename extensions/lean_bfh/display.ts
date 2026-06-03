@@ -7,6 +7,7 @@ export function stateToolText(statePath: string, state: HarnessState): string {
     `Step: ${state.currentStep}`,
     `Revision: ${state.revisionCount}/${state.revisionLimit}`,
     `Review: ${state.review.verdict} (${formatReviewCountsLine(state.review)})`,
+    `Human: mode=${state.human.autonomous ? "autonomous" : "in-loop"}, pre-implement=${state.human.preImplement.status}${state.human.preImplement.required ? " (required)" : ""}, pre-close=${state.human.preClose.status}`,
     `Evidence: ${state.evidence.length}`,
     `PR: ${state.pr.url || "(none)"}${state.pr.reviewDecision ? ` [${state.pr.reviewDecision}]` : ""}`,
     `Verdict: ${state.finalVerdict}`,

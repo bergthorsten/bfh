@@ -1,7 +1,6 @@
 import type { HarnessState } from "./types.ts";
 import { readBriefMissionSummary, briefPathFor } from "./brief.ts";
 import { formatWorkingMemoryForPrompt, readWorkingMemory } from "./working-memory.ts";
-import { harnessReadmePath } from "./harness-docs.ts";
 
 function shortDescription(text: string, max = 3500): string {
   const compact = text.replace(/\r/g, "").trim();
@@ -9,95 +8,96 @@ function shortDescription(text: string, max = 3500): string {
   return `${compact.slice(0, max)}\n\n… [description truncated in prompt; full text is in state file]`;
 }
 
+function jiraRequestSummary(state: HarnessState): string {
+  if (state.acceptanceCriteria.length === 0) return shortDescription(state.description);
+
+  const lines = state.description.replace(/\r/g, "").split("\n");
+  const acceptanceStart = lines.findIndex((line) => /acceptance|akzeptanz|definition of done/i.test(line));
+  if (acceptanceStart <= 0) return shortDescription(state.description);
+
+  return shortDescription(lines.slice(0, acceptanceStart).join("\n"));
+}
+
 function logDirHint(statePath: string): string {
   const ticketDir = statePath.replace(/\.state\.json$/, "");
   return `${ticketDir}/logs/`;
 }
 
-function implementerDisciplineBlock(statePath: string): string[] {
+function deliveryGuidelinesBlock(statePath: string): string[] {
   const logs = logDirHint(statePath);
   return [
-    "Implementer discipline:",
-    `- Redirect test/build output to \`${logs}*.log\`; record summaries + log paths in \`bfh_state\` evidence (not raw stdout).`,
+    "Delivery guidelines:",
+    "- You own this production change end-to-end: understand the request, deliver the smallest safe change, verify it, and keep BFH state accurate.",
+    "- This may be a fix, a feature, or an improvement. Do not assume it is only bug fixing.",
+    "- Write clean, modern, simple-to-understand code. Keep the change radius small.",
+    "- Small refactors are acceptable only when they clearly reduce risk or make the requested change simpler now; avoid broad cleanup.",
+    `- Redirect test/build output to \`${logs}*.log\`; record summaries + log paths in \`bfh_state\` evidence, not raw stdout.`,
     "- On a failed approach: `git reset --hard` to the last good commit before retrying — do not stack broken commits.",
-    "- Use small WIP commits per attempt; squash or clean up before close if your team expects a single commit.",
     "- Do not edit `.pi/bfh/**/tested.json`, `reviewed.json`, or other harness marker files by hand.",
   ];
 }
 
-export function createKickoffPrompt(statePath: string, state: HarnessState, cwd: string): string {
+export function createKickoffPrompt(statePath: string, state: HarnessState, _cwd: string): string {
   const briefPath = briefPathFor(statePath);
-  const mapPath = harnessReadmePath(cwd);
 
   return [
-    `Start the lean BFH POC for ${state.ticketKey}.`,
+    `Work on ${state.ticketKey} using the BFH workflow.`,
     "",
-    "You are the implementer/orchestrator inside a deterministic Pi-native workflow.",
-    "Keep the state file current by using `bfh_state` after each phase.",
-    "Do not skip the verify/review gate. Do not exceed two revision cycles.",
-    "Prefer short summaries and log paths over raw command output.",
-    "",
-    "Mission brief (read first):",
-    briefPath,
-    "",
-    "Harness map:",
-    mapPath,
-    "",
-    "State file:",
-    statePath,
+    `Run mode: ${state.human.autonomous ? "autonomous (internal human checkpoints disabled)" : "human-in-loop checkpoints enabled"}.`,
+    "Keep the state file current with `bfh_state`. Do not skip testing or the verify/review gate.",
     "",
     "Ticket:",
-    `- Key: ${state.ticketKey}`,
-    `- Summary: ${state.summary}`,
-    `- Labels: ${state.labels.join(", ") || "(none)"}`,
-    state.linkedTickets.length
-      ? `- Linked: ${state.linkedTickets.map((t) => `${t.key} (${t.type})`).join(", ")}`
-      : "- Linked: (none)",
+    `${state.ticketKey} — ${state.summary}`,
     "",
-    "Description:",
-    shortDescription(state.description),
+    ...(state.labels.length ? ["Labels:", state.labels.join(", "), ""] : []),
+    ...(state.linkedTickets.length
+      ? ["Linked tickets:", state.linkedTickets.map((t) => `- ${t.key} (${t.type})`).join("\n"), ""]
+      : []),
+    "Request from Jira:",
+    jiraRequestSummary(state),
     "",
-    "Acceptance criteria extracted so far:",
+    "Acceptance criteria:",
     ...(state.acceptanceCriteria.length
       ? state.acceptanceCriteria.map((item) => `- ${item}`)
-      : ["- (none extracted; derive from ticket or ask targeted questions)"]),
+      : ["- No acceptance criteria were extracted automatically; derive them from the Jira request or ask targeted questions."]),
     "",
-    ...implementerDisciplineBlock(statePath),
+    ...(state.constraints.length ? ["Known constraints:", ...state.constraints.map((item) => `- ${item}`), ""] : []),
+    "Context:",
+    `- Brief: ${briefPath}`,
+    `- State: ${statePath}`,
     "",
-    "Required phase contract:",
-    "1. `bfh_state` action `advance` to `scout`, then gather concise advisory context: likely files, commands, patterns, constraints. Use `scout_auto` for automated subagent recon or patch `scout` manually.",
-    "2. If there are real decision points, advance to `clarify`, ask the user targeted questions, and patch `openQuestions` with answers via `bfh_state` action `question`. Otherwise advance directly to `implement`.",
-    "3. In `implement`, write a short plan, make the smallest safe change, run focused checks with output redirected to logs, and record evidence with action `evidence`.",
-    "4. Advance to `verify_review`. Run tests, save log, `mark_tested`, then `verify_review` (or `/bfh-verify`).",
-    "5. If the gate requests a fix and revision budget remains, action `advance` back to `implement` and address only the findings. The state tool increments the revision count automatically. Otherwise continue.",
-    "6. Advance to `close` only when review is approved. Use `mark_tested` + `verify_review`, then `close_create` (or `/bfh-close`) — this moves to `pr_review`.",
-    "7. In `pr_review`, run `pr_sync` or `/bfh-pr-sync` after colleagues review on GitHub. APPROVED → `retro`; CHANGES_REQUESTED → `implement` (re-verify, then close again).",
-    "8. In `retro`, use `retro_run` or `/bfh-retro`, append `LEARNINGS.md`, then advance to `done` only when PR is approved (or explicit `pr.allowDoneWithoutPrApproval`).",
+    ...deliveryGuidelinesBlock(statePath),
     "",
-    "Stop and report if blocked. Keep this POC lean; avoid inventing extra process.",
+    "Workflow expectations:",
+    "1. Start with scout: identify relevant files, existing patterns, checks, and risks.",
+    "2. Clarify only if a real decision blocks implementation. In human-in-loop mode, record required decisions with `human_gate`.",
+    "3. Implement the smallest safe change with a short plan.",
+    "4. Run focused checks, save logs, and record evidence with `bfh_state`.",
+    "5. Run `mark_tested` and `verify_review` before close. If review finds issues, fix only those issues within the revision budget.",
+    "6. Close only after review approval and required human pre-close approval. Then continue through PR review and retro as directed by the BFH state.",
+    "",
+    "Stop and report if blocked. Keep the workflow lean; avoid inventing extra process.",
   ].join("\n");
 }
 
-export function createResumePrompt(statePath: string, state: HarnessState, cwd: string): string {
+export function createResumePrompt(statePath: string, state: HarnessState, _cwd: string): string {
   const mission = readBriefMissionSummary(statePath);
   const memoryBlock = formatWorkingMemoryForPrompt(readWorkingMemory(statePath));
 
   return [
-    `Resume the lean BFH run for ${state.ticketKey}.`,
+    `Resume the BFH workflow for ${state.ticketKey}.`,
     "",
     ...(mission ? ["Mission:", mission, ""] : []),
     `Current step: ${state.currentStep}`,
     `Revision budget: ${state.revisionCount}/${state.revisionLimit}`,
     `State file: ${statePath}`,
     `Brief: ${briefPathFor(statePath)}`,
-    `Harness map: ${harnessReadmePath(cwd)}`,
     "",
     ...(memoryBlock ? [memoryBlock, ""] : []),
     "First call `bfh_state` with action `read` to load the current state.",
-    "Then continue from the current step using the same phase contract:",
-    "scout → clarify? → implement → verify_review → close → pr_review → retro → done.",
+    "Then continue from the current step: scout → clarify? → implement → verify_review → close → pr_review → retro → done.",
     "",
-    ...implementerDisciplineBlock(statePath),
+    ...deliveryGuidelinesBlock(statePath),
     "",
     "Use `bfh_state` action `diff_context` during verify_review to get compact touched-file context.",
     "Do not skip review, and do not attempt another repair loop if the revision budget is exhausted.",

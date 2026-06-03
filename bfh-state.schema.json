@@ -12,6 +12,7 @@
     "acceptanceCriteria",
     "constraints",
     "currentStep",
+    "human",
     "openQuestions",
     "scout",
     "implementationPlan",
@@ -48,6 +49,37 @@
     "currentStep": {
       "type": "string",
       "enum": ["intake", "scout", "clarify", "implement", "verify_review", "close", "pr_review", "retro", "done", "failed"]
+    },
+    "human": {
+      "type": "object",
+      "required": ["preImplement", "preClose"],
+      "properties": {
+        "autonomous": { "type": "boolean" },
+        "preImplement": {
+          "type": "object",
+          "required": ["required", "status"],
+          "properties": {
+            "required": { "type": "boolean" },
+            "status": { "type": "string", "enum": ["not_needed", "pending", "approved"] },
+            "comment": { "type": "string" },
+            "requestedAt": { "type": "string", "format": "date-time" },
+            "decidedAt": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        },
+        "preClose": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "type": "string", "enum": ["pending", "approved", "changes_requested"] },
+            "comment": { "type": "string" },
+            "requestedAt": { "type": "string", "format": "date-time" },
+            "decidedAt": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     "openQuestions": {
       "type": "array",

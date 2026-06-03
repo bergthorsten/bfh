@@ -48,6 +48,68 @@ describe("state", () => {
     expect(() => applyAdvance(state, "implement")).toThrow(/revision limit/i);
   });
 
+  test("scout -> implement blocks when pre-implement approval is required", () => {
+    const state = createState({
+      key: "PC-119",
+      title: "t",
+      type: "task",
+      status: "todo",
+      description: "",
+      linkedTickets: [],
+      labels: [],
+    });
+    applyAdvance(state, "scout");
+    state.human.preImplement.required = true;
+    state.human.preImplement.status = "pending";
+
+    expect(() => applyAdvance(state, "implement")).toThrow(/pre-implement decision required/i);
+
+    state.human.preImplement.status = "approved";
+    applyAdvance(state, "implement");
+    expect(state.currentStep).toBe("implement");
+  });
+
+  test("close -> implement requires human changes request", () => {
+    const state = createState({
+      key: "PC-12",
+      title: "t",
+      type: "task",
+      status: "todo",
+      description: "",
+      linkedTickets: [],
+      labels: [],
+    });
+    applyAdvance(state, "scout");
+    applyAdvance(state, "implement");
+    applyAdvance(state, "verify_review");
+    applyAdvance(state, "close");
+
+    expect(() => applyAdvance(state, "implement")).toThrow(/human pre-close decision/i);
+
+    state.human.preClose.status = "changes_requested";
+    applyAdvance(state, "implement");
+    expect(state.currentStep).toBe("implement");
+  });
+
+  test("close -> implement is blocked in autonomous mode", () => {
+    const state = createState({
+      key: "PC-129",
+      title: "t",
+      type: "task",
+      status: "todo",
+      description: "",
+      linkedTickets: [],
+      labels: [],
+    });
+    state.human.autonomous = true;
+    applyAdvance(state, "scout");
+    applyAdvance(state, "implement");
+    applyAdvance(state, "verify_review");
+    applyAdvance(state, "close");
+
+    expect(() => applyAdvance(state, "implement")).toThrow(/not available in autonomous mode/i);
+  });
+
   test("mergeStatePatch forbids direct currentStep edits", () => {
     const state = createState({
       key: "PC-12",

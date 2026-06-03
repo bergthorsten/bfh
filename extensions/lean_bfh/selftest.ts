@@ -173,6 +173,7 @@ function runH3SelfTests(cwd: string, lines: string[]): void {
   const warnTransition = resolveVerifyReviewTransition(warningOnly, warningOnly.review);
   assert(warnTransition === "close", "warning-only -> close");
   applyAdvance(warningOnly, warnTransition);
+  warningOnly.human.preClose.status = "approved";
   warningOnly.evidence.push({
     type: "review",
     passed: true,
@@ -202,7 +203,15 @@ function runH3SelfTests(cwd: string, lines: string[]): void {
     summary: "Blocking issues found.",
   });
   assert(resolveVerifyReviewTransition(critical, critical.review) === "implement", "critical -> implement");
-  const critState = { ...critical, currentStep: "close" as const, review: { ...critical.review, verdict: "approved" as const } };
+  const critState = {
+    ...critical,
+    currentStep: "close" as const,
+    review: { ...critical.review, verdict: "approved" as const },
+    human: {
+      ...critical.human,
+      preClose: { ...critical.human.preClose, status: "approved" as const },
+    },
+  };
   writeState(statePath, critState);
   seedCloseMarkers(cwd, statePath, critState);
   const reviewed = readReviewedMarker(statePath);
@@ -220,6 +229,7 @@ function runH3SelfTests(cwd: string, lines: string[]): void {
   const override = makeReviewReadyState();
   override.ticketKey = "PC-103";
   override.currentStep = "close";
+  override.human.preClose.status = "approved";
   override.review = buildReviewResult({
     verdict: "approved",
     findings: [
@@ -259,6 +269,7 @@ function runH4SelfTests(cwd: string, lines: string[]): void {
   const state = makeReviewReadyState();
   state.ticketKey = "PC-104";
   applyAdvance(state, "close");
+  state.human.preClose.status = "approved";
   state.review = buildReviewResult({
     verdict: "approved",
     findings: [],
@@ -382,7 +393,13 @@ function runM3SelfTests(cwd: string, lines: string[]): void {
   assert(result.createdAmendment && result.amendmentPath, "should stage amendment");
   const learnings = fs.readFileSync(path.join(cwd, "LEARNINGS.md"), "utf8");
   assert(learnings.includes("Selftest retro bullet"), "LEARNINGS.md should contain bullet");
-  lines.push("✓ M3: retro_run appends LEARNINGS and stages amendment");
+
+  const amendment = fs.readFileSync(result.amendmentPath!, "utf8");
+  assert(amendment.includes("Priority:"), "amendment should include priority");
+  assert(amendment.includes("Triggered by:"), "amendment should include trigger context");
+  assert(amendment.includes("## Proposed change"), "amendment should include proposed-change section");
+
+  lines.push("✓ M3: retro_run appends LEARNINGS and stages structured amendment");
 }
 
 function runPrReviewSelfTests(cwd: string, lines: string[]): void {

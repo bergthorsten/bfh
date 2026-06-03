@@ -30,6 +30,7 @@ import {
   writeReviewedMarker,
   writeTestedMarker,
 } from "./evidence-markers.ts";
+import { setBfhProgressStatus } from "./status.ts";
 
 export function registerBfhStateTool(pi: ExtensionAPI): void {
   pi.registerTool({
@@ -46,11 +47,13 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
       "Patch review.allowCloseDespiteCritical only for explicit human override when critical findings remain.",
       "Use bfh_state action `mark_tested` with testLogPath after tests (writes SHA-pinned tested.json; agents must not edit marker files).",
       "Use bfh_state action `mark_manual_tested` when src-like files changed and manual verification was done.",
-      "verify_review writes reviewed.json; close requires tested.json + reviewed.json (critical: 0).",
+      "Use bfh_state action `human_gate` for human checkpoints: optional pre-implement approval and required pre-close approval/change request (not available in autonomous mode).",
+      "verify_review writes reviewed.json; close requires tested.json + reviewed.json (critical: 0) and human pre-close approval.",
       "Use bfh_state action `close_create` to enforce close gates and create a draft PR safely.",
       "Use bfh_state action `close_check` when you only need readiness + PR body without creating a PR.",
       "Use bfh_state action `update_memory` during repair loops to record failed approaches (injected on resume).",
-      "Use bfh_state action `retro_run` on retro step to append LEARNINGS.md and stage harness amendments.",
+      "Use bfh_state action `retro_run` on retro step to append LEARNINGS.md and stage harness amendments; include a compact retroLearning based on revision loops/review findings/PR feedback.",
+      "Retro scope rule: target BFH harness improvements (prompts/docs/commands/phase logic), not target-repo code changes.",
       "Use bfh_state action `pr_sync` after draft PR exists to pull GitHub review status (approvals, change requests) into state and pr-review.json.",
       "Advance to done only after pr_sync shows APPROVED (or patch pr.allowDoneWithoutPrApproval).",
     ],
@@ -60,12 +63,13 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
       const state = readState(statePath);
       const action = String(params.action || "read").trim().toLowerCase();
 
-      if (action === "read") {
-        return {
-          content: [{ type: "text", text: `${stateToolText(statePath, state)}\n\n${JSON.stringify(state, null, 2)}` }],
-          details: { ok: true, statePath, state },
-        };
-      }
+      try {
+        if (action === "read") {
+          return {
+            content: [{ type: "text", text: `${stateToolText(statePath, state)}\n\n${JSON.stringify(state, null, 2)}` }],
+            details: { ok: true, statePath, state },
+          };
+        }
 
       if (action === "scout_auto") {
         if (state.currentStep !== "scout") {
@@ -320,6 +324,90 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
             text: [stateToolText(statePath, state), "", "mark_manual_tested: OK", marker.summary].join("\n"),
           }],
           details: { ok: true, statePath, marker },
+        };
+      }
+
+      if (action === "human_gate") {
+        const gate = String(params.humanGate?.gate || "").trim();
+        const decision = String(params.humanGate?.decision || "").trim();
+        const comment = String(params.humanGate?.comment || "").trim();
+        if (!gate || !decision) {
+          throw new Error("human_gate requires humanGate.gate and humanGate.decision.");
+        }
+
+        const now = new Date().toISOString();
+
+        if (state.human.autonomous) {
+          throw new Error("human_gate is disabled in autonomous mode. Start without --autonomous to use human checkpoints.");
+        }
+
+        if (gate === "pre_implement") {
+          if (decision === "request") {
+            state.human.preImplement = {
+              required: true,
+              status: "pending",
+              comment: comment || "Human decision requested before implementation.",
+              requestedAt: now,
+            };
+          } else if (decision === "approve") {
+            state.human.preImplement = {
+              ...state.human.preImplement,
+              required: true,
+              status: "approved",
+              comment: comment || state.human.preImplement.comment,
+              decidedAt: now,
+            };
+          } else if (decision === "not_needed") {
+            state.human.preImplement = {
+              required: false,
+              status: "not_needed",
+              comment: comment || undefined,
+              decidedAt: now,
+            };
+          } else {
+            throw new Error("human_gate pre_implement decision must be request|approve|not_needed.");
+          }
+        } else if (gate === "pre_close") {
+          if (decision === "request") {
+            state.human.preClose = {
+              status: "pending",
+              comment: comment || "Human approval requested before close_create.",
+              requestedAt: now,
+            };
+          } else if (decision === "approve") {
+            state.human.preClose = {
+              ...state.human.preClose,
+              status: "approved",
+              comment: comment || state.human.preClose.comment,
+              decidedAt: now,
+            };
+          } else if (decision === "changes_requested") {
+            state.human.preClose = {
+              ...state.human.preClose,
+              status: "changes_requested",
+              comment: comment || "Human requested changes before close.",
+              decidedAt: now,
+            };
+            if (state.currentStep === "close" && params.autoAdvanceOnHumanChanges !== false) {
+              applyAdvance(state, "implement", statePath);
+            }
+          } else {
+            throw new Error("human_gate pre_close decision must be request|approve|changes_requested.");
+          }
+        } else {
+          throw new Error("human_gate gate must be pre_implement|pre_close.");
+        }
+
+        state.evidence.push({
+          type: "note",
+          summary: `Human gate ${gate}: ${decision}${comment ? ` (${comment})` : ""}`,
+          createdAt: now,
+        });
+        writeState(statePath, state);
+
+        return {
+          content: [{ type: "text", text: [stateToolText(statePath, state), "", "human_gate: OK"].join("\n") }],
+          details: { ok: true, statePath, state },
         };
       }
 
@@ -587,6 +675,9 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
       }
 
       throw new Error(`Unknown bfh_state action: ${action}`);
+    } finally {
+      setBfhProgressStatus(ctx, state);
+    }
     },
   });
 }

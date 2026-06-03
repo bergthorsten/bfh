@@ -21,13 +21,15 @@ Repository: [github.com/bergthorsten/bfh](https://github.com/bergthorsten/bfh)
 - A read-only scout pass before implementation.
 - A fresh review pass before closing.
 - Close gates for tests, review evidence, and draft PR creation.
-- A short retrospective trail for learnings and harness improvements.
+- A short retrospective trail with auto-derived run insights and staged harness amendments.
 
 The short version:
 
 ```text
-intake -> scout -> clarify? -> implement -> verify_review -> close -> pr_review -> retro -> done
+intake -> scout -> clarify? (+ optional human pre-implement checkpoint) -> implement -> verify_review -> close (+ required human pre-close approval) -> pr_review -> retro -> done
 ```
+
+Rare mode: start with `--autonomous` (also `--autonom`/`--nohuman`) to bypass those internal checkpoints.
 
 ## Prerequisites
 
@@ -180,6 +182,7 @@ If you only want to try BFH without Jira, use `--no-jira`.
 | `/bfh <KEY>` | Start a new ticket run. |
 | `/bfh <KEY> --go` | Start immediately without editing the kickoff prompt. |
 | `/bfh <KEY> --no-jira` | Start with only the ticket key, no Jira lookup. |
+| `/bfh <KEY> --autonomous` | Skip internal human checkpoints (rare mode). Aliases: `--autonom`, `--nohuman`, `--no-human`. |
 | `/bfh-status [KEY\|path]` | Show the current state summary. |
 | `/bfh-list` | List BFH state files in this repository. |
 | `/bfh-resume [KEY\|path]` | Continue an existing run. |
@@ -200,11 +203,15 @@ BFH reads the Jira ticket, creates `.pi/bfh/<TICKET>.state.json`, writes a short
 
 The agent investigates before editing. Scout output records relevant files, commands, patterns, and risks in the state file.
 
-### 3. Implement
+### 3. Clarify + Human Pre-Implement Checkpoint (Optional)
+
+If there are real decision points, the agent asks targeted questions and records them in state. You can explicitly approve before implementation starts.
+
+### 4. Implement
 
 The agent makes the code change. Test evidence should be recorded before review. Close gates later require passing evidence and marker files written by BFH.
 
-### 4. Verify And Review
+### 5. Verify And Review
 
 BFH runs a fresh review pass. Outcomes are:
 
@@ -212,9 +219,9 @@ BFH runs a fresh review pass. Outcomes are:
 - `needs_revision`: go back to implementation, up to the revision limit.
 - `failed`: stop when the revision budget is exhausted or the review cannot pass.
 
-### 5. Close
+### 6. Close (Human Pre-Close Approval Required)
 
-BFH checks the state, test markers, review markers, and working tree. If everything is ready, it can create a draft PR with `gh`.
+BFH checks the state, test markers, review markers, human pre-close approval, and working tree. If everything is ready, it can create a draft PR with `gh`.
 
 You can set the base branch explicitly:
 
@@ -222,9 +229,9 @@ You can set the base branch explicitly:
 export BFH_BASE_BRANCH="main"
 ```
 
-### 6. PR Review And Retro
+### 7. PR Review And Retro
 
-After a draft PR exists, BFH can sync GitHub review status and only move to `done` after approval unless explicitly overridden. The retro step records learnings and proposed harness improvements.
+After a draft PR exists, BFH can sync GitHub review status and only move to `done` after approval unless explicitly overridden. The retro step now auto-derives compact insights (for example revision-loop usage, missing test evidence, and PR review bounce-back), appends them to `LEARNINGS.md`, and stages a structured amendment proposal when requested.
 
 ## Files BFH Writes
 
@@ -276,6 +283,7 @@ bfh/
     scout.md
     reviewer.md
     closer.md
+    retrospective.md
   extensions/lean_bfh/
     index.ts
     commands.ts

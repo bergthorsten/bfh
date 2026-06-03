@@ -11,6 +11,8 @@ import {
   type HarnessState,
   type HarnessStatePatch,
   type HarnessStep,
+  type HumanGatePreClose,
+  type HumanGatePreImplement,
   type JiraIssueSummary,
 } from "./types.ts";
 import { normalizeIssueKey } from "./args.ts";
@@ -58,6 +60,47 @@ function writeJson(filePath: string, data: unknown): void {
   fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
+function ensureHumanGatePreImplement(value: unknown): HumanGatePreImplement {
+  const input = value && typeof value === "object" ? (value as Partial<HumanGatePreImplement>) : {};
+  const required = Boolean(input.required);
+  const allowedStatus = new Set<HumanGatePreImplement["status"]>(["not_needed", "pending", "approved"]);
+  const status = allowedStatus.has(input.status as HumanGatePreImplement["status"])
+    ? (input.status as HumanGatePreImplement["status"])
+    : (required ? "pending" : "not_needed");
+
+  return {
+    required,
+    status,
+    comment: typeof input.comment === "string" ? input.comment : undefined,
+    requestedAt: typeof input.requestedAt === "string" ? input.requestedAt : undefined,
+    decidedAt: typeof input.decidedAt === "string" ? input.decidedAt : undefined,
+  };
+}
+
+function ensureHumanGatePreClose(value: unknown): HumanGatePreClose {
+  const input = value && typeof value === "object" ? (value as Partial<HumanGatePreClose>) : {};
+  const allowedStatus = new Set<HumanGatePreClose["status"]>(["pending", "approved", "changes_requested"]);
+  const status = allowedStatus.has(input.status as HumanGatePreClose["status"])
+    ? (input.status as HumanGatePreClose["status"])
+    : "pending";
+
+  return {
+    status,
+    comment: typeof input.comment === "string" ? input.comment : undefined,
+    requestedAt: typeof input.requestedAt === "string" ? input.requestedAt : undefined,
+    decidedAt: typeof input.decidedAt === "string" ? input.decidedAt : undefined,
+  };
+}
+
+function ensureHumanShape(state: HarnessState): void {
+  const human = state.human && typeof state.human === "object" ? state.human : ({} as HarnessState["human"]);
+  state.human = {
+    autonomous: Boolean(human.autonomous),
+    preImplement: ensureHumanGatePreImplement(human.preImplement),
+    preClose: ensureHumanGatePreClose(human.preClose),
+  };
+}
+
 export function assertStateShape(state: HarnessState): void {
   const requiredTopLevel: Array<keyof HarnessState> = [
     "schemaVersion",
@@ -99,6 +142,8 @@ export function assertStateShape(state: HarnessState): void {
   if (state.revisionCount < 0 || state.revisionLimit < 0) {
     throw new Error("State validation failed: revisionCount/revisionLimit must be >= 0.");
   }
+
+  ensureHumanShape(state);
   if (!Array.isArray(state.evidence) || !Array.isArray(state.acceptanceCriteria)) {
     throw new Error("State validation failed: evidence and acceptanceCriteria must be arrays.");
   }
@@ -181,6 +226,16 @@ export function createState(issue: JiraIssueSummary): HarnessState {
       new Set([...extractConstraints(issue.description, issue.labels), ...(issue.constraintsExtras ?? [])]),
     ).slice(0, 16),
     currentStep: "intake",
+    human: {
+      autonomous: false,
+      preImplement: {
+        required: false,
+        status: "not_needed",
+      },
+      preClose: {
+        status: "pending",
+      },
+    },
     openQuestions: [],
     scout: {
       relevantFiles: [],
@@ -247,6 +302,28 @@ export function assertTransition(state: HarnessState, nextStep: HarnessStep): vo
     );
   }
 
+  if (state.currentStep === "close" && nextStep === "implement") {
+    if (state.human.autonomous) {
+      throw new Error("close -> implement is not available in autonomous mode. Continue via PR review feedback loop.");
+    }
+    if (state.human.preClose.status !== "changes_requested") {
+      throw new Error("close -> implement requires human pre-close decision = changes_requested.");
+    }
+    if (state.revisionCount >= state.revisionLimit) {
+      throw new Error(
+        `Revision limit reached (${state.revisionCount}/${state.revisionLimit}). Do not loop back to implement.`,
+      );
+    }
+  }
+
+  if ((state.currentStep === "scout" || state.currentStep === "clarify") && nextStep === "implement") {
+    if (!state.human.autonomous && state.human.preImplement.required && state.human.preImplement.status !== "approved") {
+      throw new Error(
+        "Transition to implement is blocked: human pre-implement decision required but not approved.",
+      );
+    }
+  }
+
   if (state.currentStep === "pr_review" && nextStep === "implement") {
     const limit = state.pr.externalRevisionLimit ?? 2;
     const count = state.pr.externalRevisionCount ?? 0;
@@ -276,6 +353,13 @@ export function mergeStatePatch(state: HarnessState, patch: HarnessStatePatch | 
 
     if (key === "scout" && value && typeof value === "object") {
       state.scout = { ...state.scout, ...value };
+    } else if (key === "human" && value && typeof value === "object") {
+      state.human = {
+        autonomous: (value as HarnessState["human"]).autonomous ?? state.human.autonomous,
+        preImplement: { ...state.human.preImplement, ...((value as HarnessState["human"]).preImplement ?? {}) },
+        preClose: { ...state.human.preClose, ...((value as HarnessState["human"]).preClose ?? {}) },
+      };
+      ensureHumanShape(state);
     } else if (key === "review" && value && typeof value === "object") {
       state.review = ensureReviewShape({ ...state.review, ...value });
     } else if (key === "pr" && value && typeof value === "object") {
@@ -294,8 +378,25 @@ export function applyAdvance(state: HarnessState, nextStep: HarnessStep, statePa
     state.revisionCount += 1;
     state.review.verdict = "needs_revision";
   }
+  if (state.currentStep === "close" && nextStep === "implement") {
+    state.revisionCount += 1;
+    state.review.verdict = "needs_revision";
+  }
   if (state.currentStep === "pr_review" && nextStep === "implement") {
     state.pr.externalRevisionCount = (state.pr.externalRevisionCount ?? 0) + 1;
+  }
+  if (nextStep === "close") {
+    state.human.preClose = state.human.autonomous
+      ? {
+          status: "approved",
+          comment: "Autonomous mode: internal pre-close human gate bypassed.",
+          requestedAt: new Date().toISOString(),
+          decidedAt: new Date().toISOString(),
+        }
+      : {
+          status: "pending",
+          requestedAt: new Date().toISOString(),
+        };
   }
   if (nextStep === "done" && statePath) {
     const marker = readPrReviewMarker(statePath);

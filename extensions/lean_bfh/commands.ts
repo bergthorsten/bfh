@@ -24,6 +24,7 @@ import {
 } from "./pr-sync.ts";
 import { updateWorkingMemory } from "./working-memory.ts";
 import { runHarnessSelfTest } from "./selftest.ts";
+import { clearBfhProgressStatus, isBfhWorkflowActive, setBfhProgressStatus } from "./status.ts";
 import {
   activeStatePathFromSession,
   applyAdvance,
@@ -38,13 +39,32 @@ import { runFreshReviewViaSubagentWithRetry, runScoutViaSubagentWithRetry } from
 import { HARNESS_ENTRY_TYPE, ISSUE_KEY_PATTERN } from "./types.ts";
 
 export function registerLeanBfhCommands(pi: ExtensionAPI): void {
+  pi.on("session_start", async (_event, ctx) => {
+    const statePath = activeStatePathFromSession(ctx);
+    if (!statePath || !fs.existsSync(statePath)) {
+      clearBfhProgressStatus(ctx);
+      return;
+    }
+
+    try {
+      const state = readState(statePath);
+      if (isBfhWorkflowActive(state)) {
+        setBfhProgressStatus(ctx, state);
+      } else {
+        clearBfhProgressStatus(ctx);
+      }
+    } catch {
+      clearBfhProgressStatus(ctx);
+    }
+  });
+
   const startHarness = async (args: string, ctx: import("@mariozechner/pi-coding-agent").ExtensionContext) => {
     if (!ctx.isIdle()) {
       ctx.ui.notify("Agent is busy. Wait until current work is done.", "warning");
       return;
     }
 
-    let { issueKey, noJira, autoGo } = parseHarnessStartArgs(args || "");
+    let { issueKey, noJira, autoGo, autonomous } = parseHarnessStartArgs(args || "");
     if (!issueKey && ctx.hasUI) {
       const input = await ctx.ui.input("Jira ticket key", "e.g. PC-120");
       if (!input) return;
@@ -102,11 +122,32 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
     }
 
     const state = createState(issue);
+    if (autonomous) {
+      state.human.autonomous = true;
+      state.human.preImplement = {
+        required: false,
+        status: "not_needed",
+        comment: "Autonomous mode enabled at start.",
+        decidedAt: new Date().toISOString(),
+      };
+      state.human.preClose = {
+        status: "approved",
+        comment: "Autonomous mode enabled at start (internal human gate bypassed).",
+        requestedAt: new Date().toISOString(),
+        decidedAt: new Date().toISOString(),
+      };
+      state.evidence.push({
+        type: "note",
+        summary: "Run started in autonomous mode (--autonomous/--autonom/--nohuman).",
+        createdAt: new Date().toISOString(),
+      });
+    }
     const statePath = statePathFor(ctx.cwd, issueKey);
     writeState(statePath, state);
     ensurePrinciplesFile(ctx.cwd);
     ensureHarnessReadme(ctx.cwd);
     createBrief(statePath, state, ctx.cwd);
+    setBfhProgressStatus(ctx, state);
 
     pi.appendEntry(HARNESS_ENTRY_TYPE, {
       issueKey,
@@ -115,12 +156,15 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
     });
     pi.setSessionName(`${issueKey}: ${state.summary || "Lean BFH"}`);
 
-    ctx.ui.notify(`Lean BFH state created: ${statePath}`, "info");
+    ctx.ui.notify(
+      `Lean BFH state created: ${statePath}${autonomous ? " (autonomous mode: internal human checkpoints disabled)" : ""}`,
+      "info",
+    );
     deliverHarnessPrompt(pi, ctx, createKickoffPrompt(statePath, state, ctx.cwd), { autoGo });
   };
 
   pi.registerCommand("bfh", {
-    description: "Start lean BFH. Usage: /bfh PROJ-123 [--no-jira] [--go]",
+    description: "Start lean BFH. Usage: /bfh PROJ-123 [--no-jira] [--go] [--autonomous|--autonom|--nohuman|--no-human]",
     handler: startHarness,
   });
 
@@ -135,6 +179,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       }
 
       const state = readState(statePath);
+      setBfhProgressStatus(ctx, state);
       ctx.ui.notify(renderStatus(statePath, state), state.finalVerdict === "failed" ? "error" : "info");
     },
   });
@@ -190,6 +235,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       }
 
       const state = readState(statePath);
+      setBfhProgressStatus(ctx, state);
       pi.appendEntry(HARNESS_ENTRY_TYPE, {
         issueKey: state.ticketKey,
         statePath,
@@ -240,6 +286,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
         createdAt: new Date().toISOString(),
       });
       writeState(statePath, state);
+      setBfhProgressStatus(ctx, state);
       appendBriefProgress(statePath, "scout", normalized.summary || scoutOutcome);
 
       ctx.ui.notify(
@@ -321,6 +368,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
 
       applyAdvance(state, transition, statePath);
       writeState(statePath, state);
+      setBfhProgressStatus(ctx, state);
       writeReviewedMarker(statePath, state);
       appendBriefProgress(statePath, "verify_review", `${transition}: ${normalized.summary}`);
 
@@ -356,6 +404,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       }
 
       if (!result.ok) {
+        setBfhProgressStatus(ctx, state);
         ctx.ui.notify(
           [
             "Close helper blocked:",
@@ -370,6 +419,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       }
 
       writeState(statePath, state);
+      setBfhProgressStatus(ctx, state);
       ctx.ui.notify(
         [
           stateToolText(statePath, state),
@@ -418,6 +468,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
           createdAt: new Date().toISOString(),
         });
         writeState(statePath, state);
+        setBfhProgressStatus(ctx, state);
         writePrReviewMarker(statePath, state, snapshot);
         appendBriefProgress(statePath, "pr_review", `pr_sync: ${outcome}${advanced ? `, now ${state.currentStep}` : ""}`);
 
@@ -444,6 +495,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
 
       const state = readState(statePath);
       const result = runRetro(ctx.cwd, statePath, state);
+      setBfhProgressStatus(ctx, state);
       appendBriefProgress(statePath, "retro", "Retro helper ran.");
       ctx.ui.notify(
         [

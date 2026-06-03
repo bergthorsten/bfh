@@ -73,6 +73,21 @@ export type HarnessReview = {
   allowCloseDespiteCritical?: boolean;
 };
 
+export type HumanGatePreImplement = {
+  required: boolean;
+  status: "not_needed" | "pending" | "approved";
+  comment?: string;
+  requestedAt?: string;
+  decidedAt?: string;
+};
+
+export type HumanGatePreClose = {
+  status: "pending" | "approved" | "changes_requested";
+  comment?: string;
+  requestedAt?: string;
+  decidedAt?: string;
+};
+
 export type HarnessState = {
   schemaVersion: 1;
   ticketKey: string;
@@ -83,6 +98,12 @@ export type HarnessState = {
   acceptanceCriteria: string[];
   constraints: string[];
   currentStep: HarnessStep;
+  human: {
+    /** If true, internal human checkpoints are bypassed for this run. */
+    autonomous?: boolean;
+    preImplement: HumanGatePreImplement;
+    preClose: HumanGatePreClose;
+  };
   openQuestions: Array<{ id: string; question: string; answer?: string }>;
   scout: {
     relevantFiles: Array<{ path: string; reason: string }>;
@@ -191,11 +212,12 @@ export type HarnessStartArgs = {
   issueKey: string;
   noJira: boolean;
   autoGo: boolean;
+  autonomous: boolean;
 };
 
 export const ISSUE_KEY_PATTERN = /^[A-Z][A-Z0-9]+-\d+$/;
 export const DEFAULT_JIRA_BASE_URL = "https://portal.bergfreunde.de/jira";
-export const JIRA_CONFIG_PATH = path.join(os.homedir(), ".pi", "agents", "jira.json");
+export const JIRA_CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "jira.json");
 export const HARNESS_ENTRY_TYPE = "lean_bfh_state";
 export const STATE_DIR = path.join(".pi", "bfh");
 
@@ -217,7 +239,7 @@ export const ALLOWED_TRANSITIONS: Record<HarnessStep, HarnessStep[]> = {
   clarify: ["implement", "scout", "failed"],
   implement: ["verify_review", "failed"],
   verify_review: ["implement", "close", "failed"],
-  close: ["pr_review", "retro", "failed"],
+  close: ["implement", "pr_review", "retro", "failed"],
   pr_review: ["retro", "implement", "failed"],
   retro: ["done", "failed"],
   done: [],

@@ -21,6 +21,7 @@ function makeCloseReadyState() {
   applyAdvance(state, "implement");
   applyAdvance(state, "verify_review");
   applyAdvance(state, "close");
+  state.human.preClose.status = "approved";
   state.review = buildReviewResult({ verdict: "approved", findings: [], summary: "ok" });
   state.evidence.push(
     { type: "test", passed: true, summary: "unit tests", createdAt: new Date().toISOString() },
@@ -66,6 +67,36 @@ describe("evaluateCloseReadiness", () => {
     expect(result.ok).toBe(true);
     expect(result.prBody).toContain("PC-31");
     expect(result.prBody).toContain("Acceptance criteria");
+  });
+
+  test("blocks when human pre-close approval is missing", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-human-"));
+    const statePath = path.join(cwd, ".pi", "bfh", "PC-35.state.json");
+    const state = makeCloseReadyState();
+    state.ticketKey = "PC-35";
+    state.human.preClose.status = "pending";
+    writeState(statePath, state);
+    writeTestedMarker(statePath, state, { outputContent: "PASS\n", passed: true });
+    writeReviewedMarker(statePath, state, "unit-test");
+
+    const result = evaluateCloseReadiness(cwd, statePath, state);
+    expect(result.ok).toBe(false);
+    expect(result.reasons.some((r) => /human pre-close approval/i.test(r))).toBe(true);
+  });
+
+  test("autonomous mode bypasses pre-close human gate", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-autonomous-"));
+    const statePath = path.join(cwd, ".pi", "bfh", "PC-36.state.json");
+    const state = makeCloseReadyState();
+    state.ticketKey = "PC-36";
+    state.human.autonomous = true;
+    state.human.preClose.status = "pending";
+    writeState(statePath, state);
+    writeTestedMarker(statePath, state, { outputContent: "PASS\n", passed: true });
+    writeReviewedMarker(statePath, state, "unit-test");
+
+    const result = evaluateCloseReadiness(cwd, statePath, state);
+    expect(result.ok).toBe(true);
   });
 
   test("blocks on critical findings without override", () => {
