@@ -9,6 +9,8 @@ import { buildScoutInput, normalizeReviewFromText, normalizeScoutFromText } from
 import { getReviewSystemPrompt } from "./prompt-loader.ts";
 import { formatReviewCountsLine, getReviewCounts, resolveVerifyReviewTransition } from "./review.ts";
 import { HarnessStateParams } from "./schema.ts";
+import { applyDesignGate } from "./design-review.ts";
+import { isHandsOffLevel } from "./difficulty.ts";
 import { applyAdvance, mergeStatePatch, readState, resolveStatePath, writeState, STEP_ORDER } from "./state.ts";
 import type { HarnessEvidenceInput, HarnessOpenQuestion, HarnessStep } from "./types.ts";
 import { runFreshReviewViaSubagentWithRetry, runScoutViaSubagentWithRetry } from "./subagent.ts";
@@ -30,6 +32,16 @@ import {
   writeReviewedMarker,
   writeTestedMarker,
 } from "./evidence-markers.ts";
+import {
+  humanGateWaitMs,
+  recordBfhAction,
+  recordDesignGate,
+  recordGateBlocked,
+  recordHarnessTransition,
+  recordHumanGate,
+  recordModelUse,
+  syncMetricsSnapshot,
+} from "./metrics.ts";
 import { setBfhProgressStatus } from "./status.ts";
 
 export function registerBfhStateTool(pi: ExtensionAPI): void {
@@ -47,7 +59,8 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
       "Patch review.allowCloseDespiteCritical only for explicit human override when critical findings remain.",
       "Use bfh_state action `mark_tested` with testLogPath after tests (writes SHA-pinned tested.json; agents must not edit marker files).",
       "Use bfh_state action `mark_manual_tested` when src-like files changed and manual verification was done.",
-      "Use bfh_state action `human_gate` for human checkpoints: optional pre-implement approval and required pre-close approval/change request (not available in autonomous mode).",
+      "Use bfh_state action `human_gate` for human checkpoints: optional pre-implement approval and required pre-close approval/change request (not at difficulty level 1).",
+      "At difficulty level 3, after scout advance to clarify and run `design_gate`: submit 2–3 options, record human choice, submit proposal, then accept/decline before implement.",
       "verify_review writes reviewed.json; close requires tested.json + reviewed.json (critical: 0) and human pre-close approval.",
       "Use bfh_state action `close_create` to enforce close gates and create a draft PR safely.",
       "Use bfh_state action `close_check` when you only need readiness + PR body without creating a PR.",
@@ -64,6 +77,10 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
       const action = String(params.action || "read").trim().toLowerCase();
 
       try {
+        if (action !== "read") {
+          recordBfhAction(statePath, state, action);
+        }
+
         if (action === "read") {
           return {
             content: [{ type: "text", text: `${stateToolText(statePath, state)}\n\n${JSON.stringify(state, null, 2)}` }],
@@ -77,12 +94,15 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
         }
 
         const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+        recordModelUse(statePath, model, "scout_auto");
         const scoutInput = buildScoutInput(state, params.scoutFocus);
         const scoutResult = await runScoutViaSubagentWithRetry({
           cwd: ctx.cwd,
           scoutInput,
           model,
           signal: _signal,
+          statePath,
+          state,
         });
 
         const normalized = normalizeScoutFromText(scoutResult.text);
@@ -176,12 +196,15 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
           .join("\n");
 
         const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+        recordModelUse(statePath, model, "verify_review");
         const subagentResult = await runFreshReviewViaSubagentWithRetry({
           cwd: ctx.cwd,
           reviewerInput,
           systemPrompt: getReviewSystemPrompt(ctx.cwd),
           model,
           signal: _signal,
+          statePath,
+          state,
         });
 
         const parsed = parseAgentResult(subagentResult.text);
@@ -337,8 +360,8 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
 
         const now = new Date().toISOString();
 
-        if (state.human.autonomous) {
-          throw new Error("human_gate is disabled in autonomous mode. Start without --autonomous to use human checkpoints.");
+        if (isHandsOffLevel(state)) {
+          throw new Error("human_gate is disabled at difficulty level 1 (hands-off). Use --level 2 or 3 for human checkpoints.");
         }
 
         if (gate === "pre_implement") {
@@ -405,9 +428,40 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
         });
         writeState(statePath, state);
 
+        const waitMs =
+          gate === "pre_implement"
+            ? humanGateWaitMs(state.human.preImplement.requestedAt, state.human.preImplement.decidedAt)
+            : humanGateWaitMs(state.human.preClose.requestedAt, state.human.preClose.decidedAt);
+        recordHumanGate(statePath, state, gate, decision, waitMs);
+
         return {
           content: [{ type: "text", text: [stateToolText(statePath, state), "", "human_gate: OK"].join("\n") }],
           details: { ok: true, statePath, state },
+        };
+      }
+
+      if (action === "design_gate") {
+        const gate = params.designGate;
+        if (!gate?.step) throw new Error("design_gate requires designGate.step.");
+        const message = applyDesignGate(state, {
+          step: gate.step as "submit_options" | "record_choice" | "submit_proposal" | "accept" | "decline",
+          options: gate.options,
+          selectedOptionId: gate.selectedOptionId,
+          humanSteering: gate.humanSteering,
+          proposal: gate.proposal,
+          comment: gate.comment,
+          reopenOptions: gate.reopenOptions,
+        });
+        state.evidence.push({
+          type: "note",
+          summary: `Design gate ${gate.step}: ${message}`,
+          createdAt: new Date().toISOString(),
+        });
+        writeState(statePath, state);
+        recordDesignGate(statePath, state, gate.step);
+        return {
+          content: [{ type: "text", text: [stateToolText(statePath, state), "", `design_gate: ${message}`].join("\n") }],
+          details: { ok: true, statePath, state, designReview: state.designReview },
         };
       }
 
@@ -514,6 +568,7 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
         });
 
         if (!result.ok) {
+          recordGateBlocked(statePath, state, "close_create", (result.reasons || []).join("; "));
           return {
             content: [{
               type: "text",
@@ -653,7 +708,18 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
         if (!STEP_ORDER.includes(nextStep) && nextStep !== "failed") {
           throw new Error(`Invalid nextStep: ${params.nextStep}`);
         }
-        applyAdvance(state, nextStep, statePath);
+        try {
+          applyAdvance(state, nextStep, statePath);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          recordHarnessTransition(statePath, state, state.currentStep, nextStep, {
+            allowed: false,
+            reason,
+            trigger: "advance",
+          });
+          recordGateBlocked(statePath, state, "advance", reason);
+          throw error;
+        }
         writeState(statePath, state);
         return {
           content: [{ type: "text", text: stateToolText(statePath, state) }],
@@ -676,6 +742,7 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
 
       throw new Error(`Unknown bfh_state action: ${action}`);
     } finally {
+      syncMetricsSnapshot(statePath, state);
       setBfhProgressStatus(ctx, state);
     }
     },

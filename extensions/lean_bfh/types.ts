@@ -88,6 +88,39 @@ export type HumanGatePreClose = {
   decidedAt?: string;
 };
 
+/** 1 = easy/hands-off, 2 = medium (default), 3 = hard (mandatory design review). */
+export type DifficultyLevel = 1 | 2 | 3;
+
+export type DesignOption = {
+  id: string;
+  title: string;
+  /** Different angle or approach (e.g. incremental vs rewrite). */
+  angle: string;
+  summary: string;
+  risks: string[];
+  mitigations: string[];
+};
+
+export type DesignReviewStatus =
+  | "not_applicable"
+  | "awaiting_options"
+  | "awaiting_choice"
+  | "awaiting_proposal"
+  | "awaiting_approval"
+  | "approved";
+
+export type DesignReview = {
+  status: DesignReviewStatus;
+  options: DesignOption[];
+  selectedOptionId?: string;
+  humanSteering?: string;
+  proposal?: string;
+  lastDeclineComment?: string;
+  revisionCount: number;
+  revisionLimit: number;
+  decidedAt?: string;
+};
+
 export type HarnessState = {
   schemaVersion: 1;
   ticketKey: string;
@@ -98,9 +131,12 @@ export type HarnessState = {
   acceptanceCriteria: string[];
   constraints: string[];
   currentStep: HarnessStep;
+  /** Run difficulty set at /bfh start (default 2). */
+  difficulty: DifficultyLevel;
+  /** Suggested implementer model from env (BFH_IMPLEMENT_MODEL_L*); informational for the agent. */
+  implementModelHint?: string;
+  designReview: DesignReview;
   human: {
-    /** If true, internal human checkpoints are bypassed for this run. */
-    autonomous?: boolean;
     preImplement: HumanGatePreImplement;
     preClose: HumanGatePreClose;
   };
@@ -212,7 +248,11 @@ export type HarnessStartArgs = {
   issueKey: string;
   noJira: boolean;
   autoGo: boolean;
-  autonomous: boolean;
+  difficulty: DifficultyLevel;
+};
+
+export type CreateStateOptions = {
+  difficulty?: DifficultyLevel;
 };
 
 export const ISSUE_KEY_PATTERN = /^[A-Z][A-Z0-9]+-\d+$/;

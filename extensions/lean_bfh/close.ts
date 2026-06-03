@@ -3,6 +3,7 @@ import { readBriefExcerpt } from "./brief.ts";
 import { validateEvidenceMarkersForClose } from "./evidence-markers.ts";
 import { classifyCloseOutcome, resolveOutcome } from "./outcome-table.ts";
 import { closeBlockedByCriticalFindings, formatReviewCountsLine, getReviewCounts } from "./review.ts";
+import { recordCloseAttempt } from "./metrics.ts";
 import { applyAdvance } from "./state.ts";
 import type { HarnessState } from "./types.ts";
 
@@ -91,7 +92,7 @@ export function evaluateCloseReadiness(
 
   if (state.currentStep !== "close") reasons.push(`currentStep is ${state.currentStep}, expected close`);
   if (state.review.verdict !== "approved") reasons.push(`review verdict is ${state.review.verdict}, expected approved`);
-  if (!state.human.autonomous && state.human.preClose.status !== "approved") {
+  if (state.difficulty !== 1 && state.human.preClose.status !== "approved") {
     reasons.push("human pre-close approval missing (set via bfh_state action human_gate)");
   }
   if (closeBlockedByCriticalFindings(state)) {
@@ -136,7 +137,7 @@ export function evaluateCloseReadiness(
     `Findings: ${formatReviewCountsLine(state.review)}`,
     "",
     "## Human checkpoints",
-    `- mode: ${state.human.autonomous ? "autonomous (human gates bypassed)" : "human-in-loop"}`,
+    `- difficulty: level ${state.difficulty}`,
     `- pre-implement: ${state.human.preImplement.status}${state.human.preImplement.comment ? ` — ${state.human.preImplement.comment}` : ""}`,
     `- pre-close: ${state.human.preClose.status}${state.human.preClose.comment ? ` — ${state.human.preClose.comment}` : ""}`,
     ...(rubricLines.length ? ["", "### Rubric", ...rubricLines] : []),
@@ -189,6 +190,7 @@ export function executeCloseCreate(
   if (!readiness.ok) {
     const outcome = classifyCloseOutcome({ readinessOk: false });
     resolveOutcome("close", outcome);
+    recordCloseAttempt(statePath, state, false, readiness.reasons);
     return {
       ok: false,
       created: false,
@@ -204,6 +206,7 @@ export function executeCloseCreate(
   const pushBranch = options.pushBranch !== false;
 
   if (options.dryRun) {
+    recordCloseAttempt(statePath, state, true);
     return {
       ok: true,
       created: false,
@@ -272,9 +275,10 @@ export function executeCloseCreate(
   });
 
   if (autoAdvanceRetro !== false && state.currentStep === "close") {
-    applyAdvance(state, options.skipPrReview ? "retro" : "pr_review");
+    applyAdvance(state, options.skipPrReview ? "retro" : "pr_review", statePath);
   }
 
+  recordCloseAttempt(statePath, state, true);
   return {
     ok: true,
     created,

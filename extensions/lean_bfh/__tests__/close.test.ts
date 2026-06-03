@@ -84,12 +84,12 @@ describe("evaluateCloseReadiness", () => {
     expect(result.reasons.some((r) => /human pre-close approval/i.test(r))).toBe(true);
   });
 
-  test("autonomous mode bypasses pre-close human gate", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-autonomous-"));
+  test("difficulty level 1 bypasses pre-close human gate", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-level1-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-36.state.json");
     const state = makeCloseReadyState();
     state.ticketKey = "PC-36";
-    state.human.autonomous = true;
+    state.difficulty = 1;
     state.human.preClose.status = "pending";
     writeState(statePath, state);
     writeTestedMarker(statePath, state, { outputContent: "PASS\n", passed: true });

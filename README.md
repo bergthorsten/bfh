@@ -26,10 +26,18 @@ Repository: [github.com/bergthorsten/bfh](https://github.com/bergthorsten/bfh)
 The short version:
 
 ```text
-intake -> scout -> clarify? (+ optional human pre-implement checkpoint) -> implement -> verify_review -> close (+ required human pre-close approval) -> pr_review -> retro -> done
+intake -> scout -> clarify? -> implement -> verify_review -> close -> pr_review -> retro -> done
 ```
 
-Rare mode: start with `--autonomous` (also `--autonom`/`--nohuman`) to bypass those internal checkpoints.
+Set difficulty at start with `--level 1|2|3` (default **2**):
+
+| Level | Meaning |
+| --- | --- |
+| **1** | Easy / hands-off — internal human checkpoints bypassed (no `human_gate`). |
+| **2** | Medium (default) — agent decides when to clarify or ask the human. |
+| **3** | Hard — mandatory design review after scout (2–3 options → human choice → proposal → accept/decline) before implement. |
+
+Optional env hints for implementer model per level: `BFH_IMPLEMENT_MODEL_L1`, `BFH_IMPLEMENT_MODEL_L2`, `BFH_IMPLEMENT_MODEL_L3`.
 
 ## Prerequisites
 
@@ -182,7 +190,7 @@ If you only want to try BFH without Jira, use `--no-jira`.
 | `/bfh <KEY>` | Start a new ticket run. |
 | `/bfh <KEY> --go` | Start immediately without editing the kickoff prompt. |
 | `/bfh <KEY> --no-jira` | Start with only the ticket key, no Jira lookup. |
-| `/bfh <KEY> --autonomous` | Skip internal human checkpoints (rare mode). Aliases: `--autonom`, `--nohuman`, `--no-human`. |
+| `/bfh <KEY> --level 1\|2\|3` | Difficulty (default 2). Level 1 = hands-off; level 3 = mandatory design review. |
 | `/bfh-status [KEY\|path]` | Show the current state summary. |
 | `/bfh-list` | List BFH state files in this repository. |
 | `/bfh-resume [KEY\|path]` | Continue an existing run. |

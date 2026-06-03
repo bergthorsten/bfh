@@ -1,4 +1,5 @@
 import type { HarnessState } from "./types.ts";
+import { difficultyLabel } from "./difficulty.ts";
 import { readBriefMissionSummary, briefPathFor } from "./brief.ts";
 import { formatWorkingMemoryForPrompt, readWorkingMemory } from "./working-memory.ts";
 
@@ -37,13 +38,66 @@ function deliveryGuidelinesBlock(statePath: string): string[] {
   ];
 }
 
+function difficultyRunModeBlock(state: HarnessState): string[] {
+  const lines = [
+    `Difficulty: level ${state.difficulty} — ${difficultyLabel(state.difficulty)}`,
+  ];
+  if (state.implementModelHint) {
+    lines.push(`Suggested implementer model (from env): ${state.implementModelHint}`);
+  }
+  return lines;
+}
+
+function workflowExpectationsBlock(state: HarnessState): string[] {
+  const base = [
+    "Workflow expectations:",
+    "1. Start with scout: identify relevant files, existing patterns, checks, and risks.",
+  ];
+
+  if (state.difficulty === 1) {
+    return [
+      ...base,
+      "2. Proceed without internal human checkpoints; do not call `human_gate`.",
+      "3. Implement the smallest safe change with a short plan.",
+      "4. Run focused checks, save logs, and record evidence with `bfh_state`.",
+      "5. Run `mark_tested` and `verify_review` before close.",
+      "6. Continue through PR review and retro as directed by the BFH state.",
+    ];
+  }
+
+  if (state.difficulty === 3) {
+    return [
+      ...base,
+      "2. Advance to **clarify** after scout. Mandatory design review before implement:",
+      "   - Present **2 (preferred) or 3** solution directions via `bfh_state` action `design_gate` step `submit_options` (different angles, risks, mitigations).",
+      "   - Wait for the human to pick a direction; record with `design_gate` step `record_choice` (include their steering notes).",
+      "   - Submit a **short refined proposal** with `design_gate` step `submit_proposal`.",
+      "   - Human accepts (`accept`) or declines with feedback (`decline` + comment); revise until approved.",
+      "3. Only after design review status is `approved`, advance to implement.",
+      "4. Implement the smallest safe change aligned with the approved proposal.",
+      "5. Run focused checks, save logs, and record evidence with `bfh_state`.",
+      "6. Run `mark_tested` and `verify_review` before close; required human pre-close approval applies.",
+      "7. Continue through PR review and retro as directed by the BFH state.",
+    ];
+  }
+
+  return [
+    ...base,
+    "2. Clarify only when a real decision blocks implementation; use `question` and `human_gate` when you need human input.",
+    "3. Implement the smallest safe change with a short plan.",
+    "4. Run focused checks, save logs, and record evidence with `bfh_state`.",
+    "5. Run `mark_tested` and `verify_review` before close. Required human pre-close approval applies.",
+    "6. Continue through PR review and retro as directed by the BFH state.",
+  ];
+}
+
 export function createKickoffPrompt(statePath: string, state: HarnessState, _cwd: string): string {
   const briefPath = briefPathFor(statePath);
 
   return [
     `Work on ${state.ticketKey} using the BFH workflow.`,
     "",
-    `Run mode: ${state.human.autonomous ? "autonomous (internal human checkpoints disabled)" : "human-in-loop checkpoints enabled"}.`,
+    ...difficultyRunModeBlock(state),
     "Keep the state file current with `bfh_state`. Do not skip testing or the verify/review gate.",
     "",
     "Ticket:",
@@ -68,15 +122,9 @@ export function createKickoffPrompt(statePath: string, state: HarnessState, _cwd
     "",
     ...deliveryGuidelinesBlock(statePath),
     "",
-    "Workflow expectations:",
-    "1. Start with scout: identify relevant files, existing patterns, checks, and risks.",
-    "2. Clarify only if a real decision blocks implementation. In human-in-loop mode, record required decisions with `human_gate`.",
-    "3. Implement the smallest safe change with a short plan.",
-    "4. Run focused checks, save logs, and record evidence with `bfh_state`.",
-    "5. Run `mark_tested` and `verify_review` before close. If review finds issues, fix only those issues within the revision budget.",
-    "6. Close only after review approval and required human pre-close approval. Then continue through PR review and retro as directed by the BFH state.",
+    ...workflowExpectationsBlock(state),
     "",
-    "Stop and report if blocked. Keep the workflow lean; avoid inventing extra process.",
+    "Stop and report if blocked. Keep the workflow lean; avoid inventing extra process beyond your difficulty level.",
   ].join("\n");
 }
 
@@ -88,7 +136,11 @@ export function createResumePrompt(statePath: string, state: HarnessState, _cwd:
     `Resume the BFH workflow for ${state.ticketKey}.`,
     "",
     ...(mission ? ["Mission:", mission, ""] : []),
+    ...difficultyRunModeBlock(state),
     `Current step: ${state.currentStep}`,
+    ...(state.difficulty === 3
+      ? [`Design review: ${state.designReview.status}`, ""]
+      : []),
     `Revision budget: ${state.revisionCount}/${state.revisionLimit}`,
     `State file: ${statePath}`,
     `Brief: ${briefPathFor(statePath)}`,

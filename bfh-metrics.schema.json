@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lean BFH Ticket Metrics",
+  "type": "object",
+  "required": ["schemaVersion", "ticketKey", "difficulty", "startedAt", "updatedAt", "steps", "counters", "humanWaitMs", "subagent", "models"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "ticketKey": { "type": "string", "pattern": "^[A-Z][A-Z0-9]+-[0-9]+$" },
+    "difficulty": { "type": "integer", "enum": [1, 2, 3] },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "finalStep": {
+      "type": "string",
+      "enum": ["intake", "scout", "clarify", "implement", "verify_review", "close", "pr_review", "retro", "done", "failed"]
+    },
+    "finalVerdict": { "type": "string", "enum": ["pending", "success", "failed"] },
+    "wallTimeMs": { "type": "integer", "minimum": 0 },
+    "openStep": {
+      "type": "object",
+      "required": ["step", "enteredAt"],
+      "properties": {
+        "step": { "type": "string" },
+        "enteredAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["enterCount", "wallMs"],
+        "properties": {
+          "enterCount": { "type": "integer", "minimum": 0 },
+          "wallMs": { "type": "integer", "minimum": 0 },
+          "firstEnteredAt": { "type": "string", "format": "date-time" },
+          "lastExitedAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "counters": {
+      "type": "object",
+      "required": [
+        "bfhStateActions",
+        "commands",
+        "verifyReviewRuns",
+        "scoutRuns",
+        "implementLoops",
+        "closeLoops",
+        "prReviewLoops",
+        "clarifyRescoutLoops",
+        "designGateActions",
+        "humanGateEvents",
+        "resumeCount",
+        "markTested",
+        "closeAttempts",
+        "closeBlocked",
+        "closeSuccess",
+        "prSync",
+        "memoryUpdates",
+        "gateBlocks",
+        "transitionAttempts",
+        "transitionBlocked",
+        "subagentRuns"
+      ],
+      "properties": {
+        "bfhStateActions": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+        "commands": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+        "verifyReviewRuns": { "type": "integer", "minimum": 0 },
+        "scoutRuns": { "type": "integer", "minimum": 0 },
+        "implementLoops": { "type": "integer", "minimum": 0 },
+        "closeLoops": { "type": "integer", "minimum": 0 },
+        "prReviewLoops": { "type": "integer", "minimum": 0 },
+        "clarifyRescoutLoops": { "type": "integer", "minimum": 0 },
+        "designGateActions": { "type": "integer", "minimum": 0 },
+        "humanGateEvents": { "type": "integer", "minimum": 0 },
+        "resumeCount": { "type": "integer", "minimum": 0 },
+        "markTested": { "type": "integer", "minimum": 0 },
+        "closeAttempts": { "type": "integer", "minimum": 0 },
+        "closeBlocked": { "type": "integer", "minimum": 0 },
+        "closeSuccess": { "type": "integer", "minimum": 0 },
+        "prSync": { "type": "integer", "minimum": 0 },
+        "memoryUpdates": { "type": "integer", "minimum": 0 },
+        "gateBlocks": { "type": "integer", "minimum": 0 },
+        "transitionAttempts": { "type": "integer", "minimum": 0 },
+        "transitionBlocked": { "type": "integer", "minimum": 0 },
+        "subagentRuns": {
+          "type": "object",
+          "required": ["scout", "reviewer"],
+          "properties": {
+            "scout": { "type": "integer", "minimum": 0 },
+            "reviewer": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "humanWaitMs": {
+      "type": "object",
+      "required": ["total"],
+      "properties": {
+        "preImplement": { "type": "integer", "minimum": 0 },
+        "preClose": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "subagent": {
+      "type": "object",
+      "required": ["totalRuns", "totalDurationMs", "toolCalls", "byRole"],
+      "properties": {
+        "totalRuns": { "type": "integer", "minimum": 0 },
+        "totalDurationMs": { "type": "integer", "minimum": 0 },
+        "toolCalls": { "type": "integer", "minimum": 0 },
+        "byRole": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["runs", "durationMs", "failures"],
+            "properties": {
+              "runs": { "type": "integer", "minimum": 0 },
+              "durationMs": { "type": "integer", "minimum": 0 },
+              "failures": { "type": "integer", "minimum": 0 },
+              "parseRetries": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "models": { "type": "array", "items": { "type": "string" } },
+    "tokens": {
+      "type": "object",
+      "properties": {
+        "input": { "type": "integer", "minimum": 0 },
+        "output": { "type": "integer", "minimum": 0 },
+        "cacheRead": { "type": "integer", "minimum": 0 },
+        "cacheWrite": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "currentStep": { "type": "string" },
+        "revisionCount": { "type": "integer", "minimum": 0 },
+        "externalRevisionCount": { "type": "integer", "minimum": 0 },
+        "designRevisionCount": { "type": "integer", "minimum": 0 },
+        "evidenceCount": { "type": "integer", "minimum": 0 },
+        "openQuestions": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "startMeta": {
+      "type": "object",
+      "properties": {
+        "noJira": { "type": "boolean" },
+        "autoGo": { "type": "boolean" },
+        "source": { "type": "string", "enum": ["bfh", "resume"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -10,12 +10,24 @@ import {
   type HarnessSessionEntry,
   type HarnessState,
   type HarnessStatePatch,
+  type CreateStateOptions,
+  type DifficultyLevel,
   type HarnessStep,
   type HumanGatePreClose,
   type HumanGatePreImplement,
   type JiraIssueSummary,
 } from "./types.ts";
 import { normalizeIssueKey } from "./args.ts";
+import {
+  applyHandsOffHumanBypass,
+  createInitialDesignReview,
+  DEFAULT_DIFFICULTY,
+  designReviewBlocksImplement,
+  isHandsOffLevel,
+  resolveImplementModelHint,
+} from "./difficulty.ts";
+import { ensureDesignReviewShape } from "./design-review.ts";
+import { recordHarnessTransition } from "./metrics.ts";
 import { doneBlockedReasons, readPrReviewMarker } from "./pr-sync.ts";
 import { ensureReviewShape } from "./review.ts";
 
@@ -92,10 +104,20 @@ function ensureHumanGatePreClose(value: unknown): HumanGatePreClose {
   };
 }
 
+function ensureDifficultyShape(state: HarnessState): void {
+  const level = state.difficulty;
+  if (level !== 1 && level !== 2 && level !== 3) {
+    state.difficulty = DEFAULT_DIFFICULTY;
+  }
+  state.designReview = ensureDesignReviewShape(state.designReview, state.difficulty);
+  if (typeof state.implementModelHint === "string") {
+    state.implementModelHint = state.implementModelHint.trim() || undefined;
+  }
+}
+
 function ensureHumanShape(state: HarnessState): void {
   const human = state.human && typeof state.human === "object" ? state.human : ({} as HarnessState["human"]);
   state.human = {
-    autonomous: Boolean(human.autonomous),
     preImplement: ensureHumanGatePreImplement(human.preImplement),
     preClose: ensureHumanGatePreClose(human.preClose),
   };
@@ -112,6 +134,8 @@ export function assertStateShape(state: HarnessState): void {
     "acceptanceCriteria",
     "constraints",
     "currentStep",
+    "difficulty",
+    "designReview",
     "openQuestions",
     "scout",
     "implementationPlan",
@@ -143,6 +167,7 @@ export function assertStateShape(state: HarnessState): void {
     throw new Error("State validation failed: revisionCount/revisionLimit must be >= 0.");
   }
 
+  ensureDifficultyShape(state);
   ensureHumanShape(state);
   if (!Array.isArray(state.evidence) || !Array.isArray(state.acceptanceCriteria)) {
     throw new Error("State validation failed: evidence and acceptanceCriteria must be arrays.");
@@ -207,9 +232,19 @@ export function writeState(filePath: string, state: HarnessState): HarnessState 
   return state;
 }
 
-export function createState(issue: JiraIssueSummary): HarnessState {
+export function configureStateForDifficulty(state: HarnessState, difficulty: DifficultyLevel): void {
+  state.difficulty = difficulty;
+  state.designReview = createInitialDesignReview(difficulty);
+  state.implementModelHint = resolveImplementModelHint(difficulty);
+  if (difficulty === 1) {
+    applyHandsOffHumanBypass(state, "Difficulty level 1: internal human checkpoints bypassed.");
+  }
+}
+
+export function createState(issue: JiraIssueSummary, options: CreateStateOptions = {}): HarnessState {
+  const difficulty = options.difficulty ?? DEFAULT_DIFFICULTY;
   const now = new Date().toISOString();
-  return {
+  const state: HarnessState = {
     schemaVersion: 1,
     ticketKey: issue.key,
     summary: issue.title,
@@ -226,8 +261,10 @@ export function createState(issue: JiraIssueSummary): HarnessState {
       new Set([...extractConstraints(issue.description, issue.labels), ...(issue.constraintsExtras ?? [])]),
     ).slice(0, 16),
     currentStep: "intake",
+    difficulty,
+    implementModelHint: resolveImplementModelHint(difficulty),
+    designReview: createInitialDesignReview(difficulty),
     human: {
-      autonomous: false,
       preImplement: {
         required: false,
         status: "not_needed",
@@ -269,6 +306,10 @@ export function createState(issue: JiraIssueSummary): HarnessState {
     createdAt: now,
     updatedAt: now,
   };
+  if (difficulty === 1) {
+    applyHandsOffHumanBypass(state, "Difficulty level 1: internal human checkpoints bypassed.");
+  }
+  return state;
 }
 
 export function activeStatePathFromSession(ctx: ExtensionContext): string | undefined {
@@ -303,8 +344,8 @@ export function assertTransition(state: HarnessState, nextStep: HarnessStep): vo
   }
 
   if (state.currentStep === "close" && nextStep === "implement") {
-    if (state.human.autonomous) {
-      throw new Error("close -> implement is not available in autonomous mode. Continue via PR review feedback loop.");
+    if (isHandsOffLevel(state)) {
+      throw new Error("close -> implement is not available at difficulty level 1. Continue via PR review feedback loop.");
     }
     if (state.human.preClose.status !== "changes_requested") {
       throw new Error("close -> implement requires human pre-close decision = changes_requested.");
@@ -317,7 +358,12 @@ export function assertTransition(state: HarnessState, nextStep: HarnessStep): vo
   }
 
   if ((state.currentStep === "scout" || state.currentStep === "clarify") && nextStep === "implement") {
-    if (!state.human.autonomous && state.human.preImplement.required && state.human.preImplement.status !== "approved") {
+    if (designReviewBlocksImplement(state)) {
+      throw new Error(
+        `Transition to implement is blocked: design review must be approved (status=${state.designReview.status}). Use bfh_state design_gate on the clarify step.`,
+      );
+    }
+    if (!isHandsOffLevel(state) && state.human.preImplement.required && state.human.preImplement.status !== "approved") {
       throw new Error(
         "Transition to implement is blocked: human pre-implement decision required but not approved.",
       );
@@ -353,9 +399,13 @@ export function mergeStatePatch(state: HarnessState, patch: HarnessStatePatch | 
 
     if (key === "scout" && value && typeof value === "object") {
       state.scout = { ...state.scout, ...value };
+    } else if (key === "designReview" && value && typeof value === "object") {
+      state.designReview = ensureDesignReviewShape(
+        { ...state.designReview, ...value },
+        state.difficulty,
+      );
     } else if (key === "human" && value && typeof value === "object") {
       state.human = {
-        autonomous: (value as HarnessState["human"]).autonomous ?? state.human.autonomous,
         preImplement: { ...state.human.preImplement, ...((value as HarnessState["human"]).preImplement ?? {}) },
         preClose: { ...state.human.preClose, ...((value as HarnessState["human"]).preClose ?? {}) },
       };
@@ -373,6 +423,7 @@ export function mergeStatePatch(state: HarnessState, patch: HarnessStatePatch | 
 }
 
 export function applyAdvance(state: HarnessState, nextStep: HarnessStep, statePath?: string): void {
+  const fromStep = state.currentStep;
   assertTransition(state, nextStep);
   if (state.currentStep === "verify_review" && nextStep === "implement") {
     state.revisionCount += 1;
@@ -386,10 +437,10 @@ export function applyAdvance(state: HarnessState, nextStep: HarnessStep, statePa
     state.pr.externalRevisionCount = (state.pr.externalRevisionCount ?? 0) + 1;
   }
   if (nextStep === "close") {
-    state.human.preClose = state.human.autonomous
+    state.human.preClose = isHandsOffLevel(state)
       ? {
           status: "approved",
-          comment: "Autonomous mode: internal pre-close human gate bypassed.",
+          comment: "Difficulty level 1: internal pre-close human gate bypassed.",
           requestedAt: new Date().toISOString(),
           decidedAt: new Date().toISOString(),
         }
@@ -397,6 +448,9 @@ export function applyAdvance(state: HarnessState, nextStep: HarnessStep, statePa
           status: "pending",
           requestedAt: new Date().toISOString(),
         };
+  }
+  if (nextStep === "clarify" && state.difficulty === 3 && state.designReview.status === "not_applicable") {
+    state.designReview.status = "awaiting_options";
   }
   if (nextStep === "done" && statePath) {
     const marker = readPrReviewMarker(statePath);
@@ -406,6 +460,9 @@ export function applyAdvance(state: HarnessState, nextStep: HarnessStep, statePa
   state.currentStep = nextStep;
   if (nextStep === "done") state.finalVerdict = "success";
   if (nextStep === "failed") state.finalVerdict = "failed";
+  if (statePath) {
+    recordHarnessTransition(statePath, state, fromStep, nextStep, { allowed: true, trigger: "advance" });
+  }
 }
 
 export { STEP_ORDER };
