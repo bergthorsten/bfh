@@ -1,3 +1,5 @@
+import { designReviewStatusLabel } from "./difficulty.ts";
+import { formatMetricsSummary, readMetrics } from "./metrics.ts";
 import { formatReviewCountsLine } from "./review.ts";
 import type { HarnessState } from "./types.ts";
 
@@ -5,9 +7,12 @@ export function stateToolText(statePath: string, state: HarnessState): string {
   return [
     `State: ${statePath}`,
     `Step: ${state.currentStep}`,
+    `Branch: ${state.git.branch} (base ${state.git.baseBranch})`,
+    `Difficulty: ${state.difficulty}`,
     `Revision: ${state.revisionCount}/${state.revisionLimit}`,
     `Review: ${state.review.verdict} (${formatReviewCountsLine(state.review)})`,
-    `Human: mode=${state.human.autonomous ? "autonomous" : "in-loop"}, pre-implement=${state.human.preImplement.status}${state.human.preImplement.required ? " (required)" : ""}, pre-close=${state.human.preClose.status}`,
+    `Design: ${designReviewStatusLabel(state)}`,
+    `Human: pre-implement=${state.human.preImplement.status}${state.human.preImplement.required ? " (required)" : ""}, pre-close=${state.human.preClose.status}`,
     `Evidence: ${state.evidence.length}`,
     `PR: ${state.pr.url || "(none)"}${state.pr.reviewDecision ? ` [${state.pr.reviewDecision}]` : ""}`,
     `Verdict: ${state.finalVerdict}`,
@@ -21,10 +26,14 @@ export function renderStatus(statePath: string, state: HarnessState): string {
     return `- ${item.type}${passed}${command}: ${item.summary}`;
   });
 
+  const metrics = readMetrics(statePath);
+  const metricsLine = metrics ? formatMetricsSummary(metrics) : undefined;
+
   return [
     `# ${state.ticketKey} — ${state.summary || "Lean BFH task"}`,
     "",
     stateToolText(statePath, state),
+    ...(metricsLine ? ["", metricsLine] : []),
     "",
     "## Acceptance criteria",
     ...(state.acceptanceCriteria.length

@@ -3,8 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { loadAgentPrompt } from "./prompt-loader.ts";
+import { recordSubagentRun } from "./metrics.ts";
 import { shouldRetryAgentParse } from "./normalize.ts";
-import type { PiJsonContentPart, PiJsonEvent, PiJsonMessage, SubagentRunResult } from "./types.ts";
+import type { HarnessState, PiJsonContentPart, PiJsonEvent, PiJsonMessage, SubagentRunResult } from "./types.ts";
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
   const currentScript = process.argv[1];
@@ -39,6 +40,12 @@ function hasSubagentToolCall(message: PiJsonMessage | undefined): boolean {
   return (
     Array.isArray(content) && content.some((part) => part?.type === "toolCall" && part?.name === "subagent")
   );
+}
+
+function countToolCalls(message: PiJsonMessage | undefined): number {
+  const content = message?.content;
+  if (!Array.isArray(content)) return 0;
+  return content.filter((part) => part?.type === "toolCall").length;
 }
 
 function buildSubagentReviewerTask(systemPrompt: string, reviewerInput: string): string {
@@ -80,12 +87,18 @@ async function runSubagentOrchestration(options: {
   orchestrationPrompt: string;
   tmpPrefix: string;
   label: string;
+  role: "scout" | "reviewer";
   model?: string;
   signal?: AbortSignal;
+  statePath?: string;
+  state?: HarnessState;
 }): Promise<SubagentRunResult> {
   if (options.signal?.aborted) {
     throw new Error(`${options.label} subagent aborted.`);
   }
+
+  const startedAt = Date.now();
+  let toolCalls = 0;
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), options.tmpPrefix));
   const inputPath = path.join(tmpDir, "input.md");
@@ -121,6 +134,7 @@ async function runSubagentOrchestration(options: {
     }
 
     if (event.type === "message_end" && event.message?.role === "assistant") {
+      toolCalls += countToolCalls(event.message);
       if (hasSubagentToolCall(event.message)) usedSubagent = true;
       const text = extractAssistantText(event.message);
       if (text) latestAssistantText = text;
@@ -184,13 +198,26 @@ async function runSubagentOrchestration(options: {
       throw new Error(`${options.label} failed: subagent tool was not used by the runner.`);
     }
 
-    return {
+    const result: SubagentRunResult = {
       text: latestAssistantText || latestSubagentToolText,
       stopReason,
       stderr,
       exitCode,
       usedSubagent,
     };
+
+    if (options.statePath) {
+      recordSubagentRun(options.statePath, options.state, {
+        role: options.role,
+        durationMs: Date.now() - startedAt,
+        exitCode,
+        model: options.model,
+        toolCalls,
+        stopReason,
+      });
+    }
+
+    return result;
   } finally {
     if (options.signal) options.signal.removeEventListener("abort", onAbort);
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -203,6 +230,8 @@ export async function runFreshReviewViaSubagent(options: {
   systemPrompt?: string;
   model?: string;
   signal?: AbortSignal;
+  statePath?: string;
+  state?: HarnessState;
 }): Promise<SubagentRunResult> {
   const systemPrompt = options.systemPrompt ?? loadAgentPrompt("reviewer");
   return runSubagentOrchestration({
@@ -210,8 +239,11 @@ export async function runFreshReviewViaSubagent(options: {
     orchestrationPrompt: buildSubagentOrchestrationPrompt(systemPrompt, options.reviewerInput),
     tmpPrefix: "pi-harness-review-",
     label: "Fresh review",
+    role: "reviewer",
     model: options.model,
     signal: options.signal,
+    statePath: options.statePath,
+    state: options.state,
   });
 }
 
@@ -220,31 +252,66 @@ export async function runScoutViaSubagent(options: {
   scoutInput: string;
   model?: string;
   signal?: AbortSignal;
+  statePath?: string;
+  state?: HarnessState;
 }): Promise<SubagentRunResult> {
   return runSubagentOrchestration({
     cwd: options.cwd,
     orchestrationPrompt: buildScoutSubagentOrchestrationPrompt(options.scoutInput),
     tmpPrefix: "pi-harness-scout-",
     label: "Scout",
+    role: "scout",
     model: options.model,
     signal: options.signal,
+    statePath: options.statePath,
+    state: options.state,
   });
 }
 
-async function runWithAgentResultRetry(run: () => Promise<SubagentRunResult>): Promise<SubagentRunResult> {
+async function runWithAgentResultRetry(
+  run: () => Promise<SubagentRunResult>,
+  onRetry?: () => void,
+): Promise<SubagentRunResult> {
   const first = await run();
   if (!shouldRetryAgentParse(first.text)) return first;
+  onRetry?.();
   return run();
 }
 
 export async function runScoutViaSubagentWithRetry(
   options: Parameters<typeof runScoutViaSubagent>[0],
 ): Promise<SubagentRunResult> {
-  return runWithAgentResultRetry(() => runScoutViaSubagent(options));
+  return runWithAgentResultRetry(
+    () => runScoutViaSubagent(options),
+    () => {
+      if (options.statePath) {
+        recordSubagentRun(options.statePath, options.state, {
+          role: "scout",
+          durationMs: 0,
+          exitCode: 0,
+          model: options.model,
+          parseRetry: true,
+        });
+      }
+    },
+  );
 }
 
 export async function runFreshReviewViaSubagentWithRetry(
   options: Parameters<typeof runFreshReviewViaSubagent>[0],
 ): Promise<SubagentRunResult> {
-  return runWithAgentResultRetry(() => runFreshReviewViaSubagent(options));
+  return runWithAgentResultRetry(
+    () => runFreshReviewViaSubagent(options),
+    () => {
+      if (options.statePath) {
+        recordSubagentRun(options.statePath, options.state, {
+          role: "reviewer",
+          durationMs: 0,
+          exitCode: 0,
+          model: options.model,
+          parseRetry: true,
+        });
+      }
+    },
+  );
 }

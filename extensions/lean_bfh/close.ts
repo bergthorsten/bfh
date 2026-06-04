@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { resolveHarnessBaseBranch } from "./git-prep.ts";
 import { readBriefExcerpt } from "./brief.ts";
 import { validateEvidenceMarkersForClose } from "./evidence-markers.ts";
 import { classifyCloseOutcome, resolveOutcome } from "./outcome-table.ts";
 import { closeBlockedByCriticalFindings, formatReviewCountsLine, getReviewCounts } from "./review.ts";
+import { recordCloseAttempt } from "./metrics.ts";
 import { applyAdvance } from "./state.ts";
 import type { HarnessState } from "./types.ts";
 
@@ -18,6 +20,7 @@ function runCommand(cwd: string, command: string, args: string[], step: string):
   try {
     return execFileSync(command, args, {
       cwd,
+      env: process.env,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
@@ -26,11 +29,10 @@ function runCommand(cwd: string, command: string, args: string[], step: string):
   }
 }
 
-export function resolveBaseBranch(cwd: string, explicit?: string): string {
-  const fromEnv = process.env.BFH_BASE_BRANCH?.trim();
+export function resolveBaseBranch(cwd: string, explicit?: string, state?: HarnessState): string {
   if (explicit?.trim()) return explicit.trim();
-  if (fromEnv) return fromEnv;
-  return detectDefaultBaseBranch(cwd);
+  if (state?.git?.baseBranch) return state.git.baseBranch;
+  return resolveHarnessBaseBranch(cwd);
 }
 
 export function assertCleanWorkingTree(cwd: string): void {
@@ -43,31 +45,6 @@ export function assertCleanWorkingTree(cwd: string): void {
   }
 }
 
-function detectDefaultBaseBranch(cwd: string): string {
-  try {
-    const originHead = runCommand(cwd, "git", ["symbolic-ref", "refs/remotes/origin/HEAD"], "Detect origin default branch");
-    const match = originHead.match(/^refs\/remotes\/origin\/(.+)$/);
-    if (match?.[1]) return match[1];
-  } catch {
-    // Fallback below.
-  }
-
-  try {
-    runCommand(cwd, "git", ["show-ref", "--verify", "refs/heads/main"], "Check main branch");
-    return "main";
-  } catch {
-    // Fallback below.
-  }
-
-  try {
-    runCommand(cwd, "git", ["show-ref", "--verify", "refs/heads/master"], "Check master branch");
-    return "master";
-  } catch {
-    // Fallback below.
-  }
-
-  return "main";
-}
 
 function extractFirstUrl(text: string): string | undefined {
   const match = text.match(/https?:\/\/\S+/);
@@ -91,7 +68,7 @@ export function evaluateCloseReadiness(
 
   if (state.currentStep !== "close") reasons.push(`currentStep is ${state.currentStep}, expected close`);
   if (state.review.verdict !== "approved") reasons.push(`review verdict is ${state.review.verdict}, expected approved`);
-  if (!state.human.autonomous && state.human.preClose.status !== "approved") {
+  if (state.difficulty !== 1 && state.human.preClose.status !== "approved") {
     reasons.push("human pre-close approval missing (set via bfh_state action human_gate)");
   }
   if (closeBlockedByCriticalFindings(state)) {
@@ -136,7 +113,7 @@ export function evaluateCloseReadiness(
     `Findings: ${formatReviewCountsLine(state.review)}`,
     "",
     "## Human checkpoints",
-    `- mode: ${state.human.autonomous ? "autonomous (human gates bypassed)" : "human-in-loop"}`,
+    `- difficulty: level ${state.difficulty}`,
     `- pre-implement: ${state.human.preImplement.status}${state.human.preImplement.comment ? ` — ${state.human.preImplement.comment}` : ""}`,
     `- pre-close: ${state.human.preClose.status}${state.human.preClose.comment ? ` — ${state.human.preClose.comment}` : ""}`,
     ...(rubricLines.length ? ["", "### Rubric", ...rubricLines] : []),
@@ -189,6 +166,7 @@ export function executeCloseCreate(
   if (!readiness.ok) {
     const outcome = classifyCloseOutcome({ readinessOk: false });
     resolveOutcome("close", outcome);
+    recordCloseAttempt(statePath, state, false, readiness.reasons);
     return {
       ok: false,
       created: false,
@@ -198,12 +176,15 @@ export function executeCloseCreate(
     };
   }
 
-  const baseBranch = resolveBaseBranch(cwd, options.baseBranch);
+  const baseBranch = resolveBaseBranch(cwd, options.baseBranch, state);
   const headBranch =
-    options.headBranch?.trim() || runCommand(cwd, "git", ["rev-parse", "--abbrev-ref", "HEAD"], "Detect current branch");
+    options.headBranch?.trim() ||
+    state.git?.branch ||
+    runCommand(cwd, "git", ["rev-parse", "--abbrev-ref", "HEAD"], "Detect current branch");
   const pushBranch = options.pushBranch !== false;
 
   if (options.dryRun) {
+    recordCloseAttempt(statePath, state, true);
     return {
       ok: true,
       created: false,
@@ -272,9 +253,10 @@ export function executeCloseCreate(
   });
 
   if (autoAdvanceRetro !== false && state.currentStep === "close") {
-    applyAdvance(state, options.skipPrReview ? "retro" : "pr_review");
+    applyAdvance(state, options.skipPrReview ? "retro" : "pr_review", statePath);
   }
 
+  recordCloseAttempt(statePath, state, true);
   return {
     ok: true,
     created,

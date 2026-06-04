@@ -12,6 +12,9 @@
     "acceptanceCriteria",
     "constraints",
     "currentStep",
+    "difficulty",
+    "git",
+    "designReview",
     "human",
     "openQuestions",
     "scout",
@@ -50,11 +53,59 @@
       "type": "string",
       "enum": ["intake", "scout", "clarify", "implement", "verify_review", "close", "pr_review", "retro", "done", "failed"]
     },
+    "difficulty": { "type": "integer", "enum": [1, 2, 3] },
+    "git": {
+      "type": "object",
+      "required": ["branch", "baseBranch", "entryMode"],
+      "properties": {
+        "branch": { "type": "string", "minLength": 1 },
+        "baseBranch": { "type": "string", "minLength": 1 },
+        "entryMode": {
+          "type": "string",
+          "enum": ["greenfield", "adopt-continue", "adopt-verify", "adopt-fix", "resume"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "implementModelHint": { "type": "string" },
+    "designReview": {
+      "type": "object",
+      "required": ["status", "options", "revisionCount", "revisionLimit"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["not_applicable", "awaiting_options", "awaiting_choice", "awaiting_proposal", "awaiting_approval", "approved"]
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "title", "angle", "summary", "risks", "mitigations"],
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "angle": { "type": "string" },
+              "summary": { "type": "string" },
+              "risks": { "type": "array", "items": { "type": "string" } },
+              "mitigations": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "selectedOptionId": { "type": "string" },
+        "humanSteering": { "type": "string" },
+        "proposal": { "type": "string" },
+        "lastDeclineComment": { "type": "string" },
+        "revisionCount": { "type": "integer", "minimum": 0 },
+        "revisionLimit": { "type": "integer", "minimum": 0 },
+        "decidedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
     "human": {
       "type": "object",
       "required": ["preImplement", "preClose"],
       "properties": {
-        "autonomous": { "type": "boolean" },
         "preImplement": {
           "type": "object",
           "required": ["required", "status"],

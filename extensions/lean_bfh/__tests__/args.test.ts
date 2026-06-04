@@ -11,26 +11,27 @@ describe("args", () => {
       issueKey: "PC-120",
       noJira: true,
       autoGo: true,
-      autonomous: false,
+      difficulty: 2,
     });
     expect(parseHarnessStartArgs("-n -g BF-1")).toEqual({
       issueKey: "BF-1",
       noJira: true,
       autoGo: true,
-      autonomous: false,
+      difficulty: 2,
     });
     expect(parseHarnessStartArgs("")).toEqual({
       issueKey: "",
       noJira: false,
       autoGo: false,
-      autonomous: false,
+      difficulty: 2,
     });
   });
 
-  test("parses autonomous aliases", () => {
-    expect(parseHarnessStartArgs("pc-1 --autonomous").autonomous).toBe(true);
-    expect(parseHarnessStartArgs("pc-1 --autonom").autonomous).toBe(true);
-    expect(parseHarnessStartArgs("pc-1 --nohuman").autonomous).toBe(true);
-    expect(parseHarnessStartArgs("pc-1 --no-human").autonomous).toBe(true);
+  test("parses --level flag", () => {
+    expect(parseHarnessStartArgs("pc-1 --level 1").difficulty).toBe(1);
+    expect(parseHarnessStartArgs("pc-1 --level 3").difficulty).toBe(3);
+    expect(parseHarnessStartArgs("pc-1 -l 1").difficulty).toBe(1);
+    expect(parseHarnessStartArgs("pc-1 --level=2").difficulty).toBe(2);
+    expect(parseHarnessStartArgs("pc-1 --level 9").difficulty).toBe(2);
   });
 });

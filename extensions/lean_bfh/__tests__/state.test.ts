@@ -91,23 +91,25 @@ describe("state", () => {
     expect(state.currentStep).toBe("implement");
   });
 
-  test("close -> implement is blocked in autonomous mode", () => {
-    const state = createState({
-      key: "PC-129",
-      title: "t",
-      type: "task",
-      status: "todo",
-      description: "",
-      linkedTickets: [],
-      labels: [],
-    });
-    state.human.autonomous = true;
+  test("close -> implement is blocked at difficulty level 1", () => {
+    const state = createState(
+      {
+        key: "PC-129",
+        title: "t",
+        type: "task",
+        status: "todo",
+        description: "",
+        linkedTickets: [],
+        labels: [],
+      },
+      { difficulty: 1 },
+    );
     applyAdvance(state, "scout");
     applyAdvance(state, "implement");
     applyAdvance(state, "verify_review");
     applyAdvance(state, "close");
 
-    expect(() => applyAdvance(state, "implement")).toThrow(/not available in autonomous mode/i);
+    expect(() => applyAdvance(state, "implement")).toThrow(/difficulty level 1/i);
   });
 
   test("mergeStatePatch forbids direct currentStep edits", () => {

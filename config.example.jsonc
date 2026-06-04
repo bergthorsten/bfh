@@ -1,0 +1,47 @@
+{
+  // Copy to config.jsonc in this repo root (gitignored). Install or /bfh seeds on first run.
+  // Env vars override file values (good for CI secrets: JIRA_TOKEN, etc.).
+
+  "jira": {
+    "baseUrl": "https://portal.bergfreunde.de/jira",
+    // "token": "paste-here-or-use-JIRA_TOKEN-env",
+    "authMode": "bearer"
+    // "email": "you@company.com",  // required when authMode is "basic"
+    // "acceptanceFields": ["customfield_12345"],
+    // "constraintFields": ["customfield_67890"]
+  },
+
+  "workflow": {
+    "defaultDifficulty": 2,
+    "baseBranch": "master",
+    "verifyRevisionLimit": 2,
+    "designReviewRevisionLimit": 3,
+    "externalPrRevisionLimit": 2,
+    "maxReviewTouchedFiles": 20
+  },
+
+  // Ping (sound + OS notification) when the harness waits on you — only on pending human/design gates.
+  // Env: BFH_NOTIFICATIONS_ENABLED, BFH_NOTIFICATIONS_SOUND, BFH_NOTIFICATIONS_OS
+  // Optional: BFH_NOTIFICATION_SOUND_FILE=/System/Library/Sounds/Glass.aiff
+  "notifications": {
+    "enabled": true,
+    "sound": true,
+    "osNotify": true
+  }
+
+  // Uncomment only to override BFH package defaults (`provider/id` or `provider/id:thinking`).
+  // When omitted, BFH uses the shipped defaults below — update those via `pi install` / package release.
+  // Default thinking is `:medium` when not specified.
+  //
+  // "models": {
+  //   "implement": {
+  //     "1": "github-copilot/gemini-3.5-flash:medium",
+  //     "2": "github-copilot/gpt-5.3-codex:medium",
+  //     "3": "github-copilot/gpt-5.5:medium"
+  //   },
+  //   "scout": "github-copilot/gemini-3.5-flash:medium",
+  //   "reviewer": "github-copilot/gpt-5.3-codex:medium",
+  //   "closer": "github-copilot/gpt-5.4-mini:medium",
+  //   "retro": "github-copilot/gpt-5.4-mini:medium"
+  // }
+}

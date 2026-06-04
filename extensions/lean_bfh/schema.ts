@@ -4,7 +4,7 @@ export const HarnessStateParams = Type.Object({
   statePath: Type.Optional(Type.String({ description: "Path to state JSON. Defaults to active /bfh session state." })),
   action: Type.String({
     description:
-      "read | patch | advance | evidence | question | verdict | diff_context | scout_auto | verify_review | mark_tested | mark_reviewed | mark_manual_tested | human_gate | update_memory | retro_run | pr_sync | close_check | close_create",
+      "read | patch | advance | evidence | question | verdict | diff_context | scout_auto | verify_review | mark_tested | mark_reviewed | mark_manual_tested | human_gate | design_gate | update_memory | retro_run | pr_sync | close_check | close_create",
   }),
   patch: Type.Optional(Type.Any({ description: "Small JSON patch for patch action. currentStep/revision fields are ignored." })),
   nextStep: Type.Optional(Type.String({ description: "Target step for advance action." })),
@@ -77,4 +77,30 @@ export const HarnessStateParams = Type.Object({
   autoAdvanceOnHumanChanges: Type.Optional(Type.Boolean({
     description: "When pre_close decision=changes_requested at close, auto-advance to implement (default true).",
   })),
+  designGate: Type.Optional(
+    Type.Object({
+      step: Type.String({
+        description: "submit_options | record_choice | submit_proposal | accept | decline (difficulty 3 only)",
+      }),
+      options: Type.Optional(
+        Type.Array(
+          Type.Object({
+            id: Type.Optional(Type.String()),
+            title: Type.String(),
+            angle: Type.Optional(Type.String()),
+            summary: Type.String(),
+            risks: Type.Optional(Type.Array(Type.String())),
+            mitigations: Type.Optional(Type.Array(Type.String())),
+          }),
+        ),
+      ),
+      selectedOptionId: Type.Optional(Type.String()),
+      humanSteering: Type.Optional(Type.String()),
+      proposal: Type.Optional(Type.String()),
+      comment: Type.Optional(Type.String({ description: "Required for decline — what to change." })),
+      reopenOptions: Type.Optional(Type.Boolean({
+        description: "On decline, restart from new options instead of revising proposal only.",
+      })),
+    }),
+  ),
 });

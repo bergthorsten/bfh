@@ -10,12 +10,28 @@ import {
   type HarnessSessionEntry,
   type HarnessState,
   type HarnessStatePatch,
+  type CreateStateOptions,
+  type DifficultyLevel,
   type HarnessStep,
+  type GitEntryMode,
+  type HarnessGitState,
   type HumanGatePreClose,
   type HumanGatePreImplement,
   type JiraIssueSummary,
 } from "./types.ts";
 import { normalizeIssueKey } from "./args.ts";
+import { loadBfhConfig, resolveImplementModelHint } from "./bfh-config.ts";
+import { DEFAULT_BASE_BRANCH, deriveBranchName, resolveHarnessBaseBranch } from "./git-prep.ts";
+import {
+  applyHandsOffHumanBypass,
+  createInitialDesignReview,
+  DEFAULT_DIFFICULTY,
+  designReviewBlocksImplement,
+  isHandsOffLevel,
+  requiresMandatoryDesignReview,
+} from "./difficulty.ts";
+import { ensureDesignReviewShape } from "./design-review.ts";
+import { recordHarnessTransition } from "./metrics.ts";
 import { doneBlockedReasons, readPrReviewMarker } from "./pr-sync.ts";
 import { ensureReviewShape } from "./review.ts";
 
@@ -60,6 +76,35 @@ function writeJson(filePath: string, data: unknown): void {
   fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
+function ensureGitShape(state: HarnessState): void {
+  const fallback: HarnessGitState = {
+    branch: deriveBranchName(state.ticketKey, state.summary),
+    baseBranch: DEFAULT_BASE_BRANCH,
+    entryMode: "resume",
+  };
+
+  const input = state.git && typeof state.git === "object" ? state.git : fallback;
+  const allowedModes = new Set<HarnessGitState["entryMode"]>([
+    "greenfield",
+    "adopt-continue",
+    "adopt-verify",
+    "adopt-fix",
+    "resume",
+  ]);
+  const entryMode = allowedModes.has(input.entryMode as HarnessGitState["entryMode"])
+    ? (input.entryMode as HarnessGitState["entryMode"])
+    : fallback.entryMode;
+
+  state.git = {
+    branch: typeof input.branch === "string" && input.branch.trim() ? input.branch.trim() : fallback.branch,
+    baseBranch:
+      typeof input.baseBranch === "string" && input.baseBranch.trim()
+        ? input.baseBranch.trim()
+        : fallback.baseBranch,
+    entryMode,
+  };
+}
+
 function ensureHumanGatePreImplement(value: unknown): HumanGatePreImplement {
   const input = value && typeof value === "object" ? (value as Partial<HumanGatePreImplement>) : {};
   const required = Boolean(input.required);
@@ -92,10 +137,20 @@ function ensureHumanGatePreClose(value: unknown): HumanGatePreClose {
   };
 }
 
+function ensureDifficultyShape(state: HarnessState): void {
+  const level = state.difficulty;
+  if (level !== 1 && level !== 2 && level !== 3) {
+    state.difficulty = DEFAULT_DIFFICULTY;
+  }
+  state.designReview = ensureDesignReviewShape(state.designReview, state.difficulty);
+  if (typeof state.implementModelHint === "string") {
+    state.implementModelHint = state.implementModelHint.trim() || undefined;
+  }
+}
+
 function ensureHumanShape(state: HarnessState): void {
   const human = state.human && typeof state.human === "object" ? state.human : ({} as HarnessState["human"]);
   state.human = {
-    autonomous: Boolean(human.autonomous),
     preImplement: ensureHumanGatePreImplement(human.preImplement),
     preClose: ensureHumanGatePreClose(human.preClose),
   };
@@ -112,6 +167,9 @@ export function assertStateShape(state: HarnessState): void {
     "acceptanceCriteria",
     "constraints",
     "currentStep",
+    "difficulty",
+    "git",
+    "designReview",
     "openQuestions",
     "scout",
     "implementationPlan",
@@ -143,7 +201,9 @@ export function assertStateShape(state: HarnessState): void {
     throw new Error("State validation failed: revisionCount/revisionLimit must be >= 0.");
   }
 
+  ensureDifficultyShape(state);
   ensureHumanShape(state);
+  ensureGitShape(state);
   if (!Array.isArray(state.evidence) || !Array.isArray(state.acceptanceCriteria)) {
     throw new Error("State validation failed: evidence and acceptanceCriteria must be arrays.");
   }
@@ -207,9 +267,26 @@ export function writeState(filePath: string, state: HarnessState): HarnessState 
   return state;
 }
 
-export function createState(issue: JiraIssueSummary): HarnessState {
+export function configureStateForDifficulty(
+  state: HarnessState,
+  difficulty: DifficultyLevel,
+  cwd: string,
+): void {
+  const workflow = loadBfhConfig(cwd).workflow;
+  state.difficulty = difficulty;
+  state.designReview = createInitialDesignReview(difficulty, workflow.designReviewRevisionLimit);
+  state.implementModelHint = resolveImplementModelHint(cwd, difficulty);
+  if (difficulty === 1) {
+    applyHandsOffHumanBypass(state, "Difficulty level 1: internal human checkpoints bypassed.");
+  }
+}
+
+export function createState(issue: JiraIssueSummary, options: CreateStateOptions = {}): HarnessState {
+  const cwd = options.cwd ?? process.cwd();
+  const workflow = loadBfhConfig(cwd).workflow;
+  const difficulty = options.difficulty ?? workflow.defaultDifficulty ?? DEFAULT_DIFFICULTY;
   const now = new Date().toISOString();
-  return {
+  const state: HarnessState = {
     schemaVersion: 1,
     ticketKey: issue.key,
     summary: issue.title,
@@ -226,8 +303,15 @@ export function createState(issue: JiraIssueSummary): HarnessState {
       new Set([...extractConstraints(issue.description, issue.labels), ...(issue.constraintsExtras ?? [])]),
     ).slice(0, 16),
     currentStep: "intake",
+    difficulty,
+    git: options.git ?? {
+      branch: deriveBranchName(issue.key, issue.title),
+      baseBranch: resolveHarnessBaseBranch(cwd),
+      entryMode: "greenfield",
+    },
+    implementModelHint: resolveImplementModelHint(cwd, difficulty),
+    designReview: createInitialDesignReview(difficulty, workflow.designReviewRevisionLimit),
     human: {
-      autonomous: false,
       preImplement: {
         required: false,
         status: "not_needed",
@@ -246,7 +330,7 @@ export function createState(issue: JiraIssueSummary): HarnessState {
     },
     implementationPlan: [],
     revisionCount: 0,
-    revisionLimit: 2,
+    revisionLimit: workflow.verifyRevisionLimit,
     evidence: [],
     review: {
       verdict: "pending",
@@ -262,13 +346,70 @@ export function createState(issue: JiraIssueSummary): HarnessState {
       lastSyncedAt: null,
       checksFailing: 0,
       externalRevisionCount: 0,
-      externalRevisionLimit: 2,
+      externalRevisionLimit: workflow.externalPrRevisionLimit,
     },
     finalVerdict: "pending",
     retroNotes: [],
     createdAt: now,
     updatedAt: now,
   };
+  if (difficulty === 1) {
+    applyHandsOffHumanBypass(state, "Difficulty level 1: internal human checkpoints bypassed.");
+  }
+  return state;
+}
+
+/** Initial workflow step when adopting an existing branch (skips scout where appropriate). */
+export function resolveAdoptInitialStep(entryMode: GitEntryMode): HarnessStep {
+  switch (entryMode) {
+    case "adopt-verify":
+      return "verify_review";
+    case "adopt-fix":
+      return "implement";
+    case "adopt-continue":
+      return "scout";
+    default:
+      return "intake";
+  }
+}
+
+/** Apply mechanical entry-mode shortcuts after /bfh git prep on an existing branch. */
+export function applyAdoptEntryMode(state: HarnessState): void {
+  const initialStep = resolveAdoptInitialStep(state.git.entryMode);
+  if (initialStep === "intake") return;
+
+  const now = new Date().toISOString();
+  state.currentStep = initialStep;
+
+  if (state.git.entryMode === "adopt-fix" && requiresMandatoryDesignReview(state)) {
+    state.designReview = {
+      ...state.designReview,
+      status: "approved",
+      humanSteering: "Adopt mode: design review skipped for existing branch refine/fix.",
+      decidedAt: now,
+    };
+  }
+
+  if (state.git.entryMode === "adopt-verify" || state.git.entryMode === "adopt-fix") {
+    state.scout.summary =
+      "Scout skipped (adopt mode). Use ticket context, git log, and diff against base branch.";
+    state.evidence.push({
+      type: "note",
+      summary: `Scout skipped; starting at ${initialStep} for entry mode ${state.git.entryMode}.`,
+      createdAt: now,
+    });
+    return;
+  }
+
+  if (state.git.entryMode === "adopt-continue") {
+    state.scout.summary =
+      "Adopt mode: scout is recon only — map existing branch work vs remaining ticket scope.";
+    state.evidence.push({
+      type: "note",
+      summary: "Adopt continue: starting at scout for branch recon.",
+      createdAt: now,
+    });
+  }
 }
 
 export function activeStatePathFromSession(ctx: ExtensionContext): string | undefined {
@@ -303,8 +444,8 @@ export function assertTransition(state: HarnessState, nextStep: HarnessStep): vo
   }
 
   if (state.currentStep === "close" && nextStep === "implement") {
-    if (state.human.autonomous) {
-      throw new Error("close -> implement is not available in autonomous mode. Continue via PR review feedback loop.");
+    if (isHandsOffLevel(state)) {
+      throw new Error("close -> implement is not available at difficulty level 1. Continue via PR review feedback loop.");
     }
     if (state.human.preClose.status !== "changes_requested") {
       throw new Error("close -> implement requires human pre-close decision = changes_requested.");
@@ -317,7 +458,12 @@ export function assertTransition(state: HarnessState, nextStep: HarnessStep): vo
   }
 
   if ((state.currentStep === "scout" || state.currentStep === "clarify") && nextStep === "implement") {
-    if (!state.human.autonomous && state.human.preImplement.required && state.human.preImplement.status !== "approved") {
+    if (designReviewBlocksImplement(state)) {
+      throw new Error(
+        `Transition to implement is blocked: design review must be approved (status=${state.designReview.status}). Use bfh_state design_gate on the clarify step.`,
+      );
+    }
+    if (!isHandsOffLevel(state) && state.human.preImplement.required && state.human.preImplement.status !== "approved") {
       throw new Error(
         "Transition to implement is blocked: human pre-implement decision required but not approved.",
       );
@@ -353,9 +499,13 @@ export function mergeStatePatch(state: HarnessState, patch: HarnessStatePatch | 
 
     if (key === "scout" && value && typeof value === "object") {
       state.scout = { ...state.scout, ...value };
+    } else if (key === "designReview" && value && typeof value === "object") {
+      state.designReview = ensureDesignReviewShape(
+        { ...state.designReview, ...value },
+        state.difficulty,
+      );
     } else if (key === "human" && value && typeof value === "object") {
       state.human = {
-        autonomous: (value as HarnessState["human"]).autonomous ?? state.human.autonomous,
         preImplement: { ...state.human.preImplement, ...((value as HarnessState["human"]).preImplement ?? {}) },
         preClose: { ...state.human.preClose, ...((value as HarnessState["human"]).preClose ?? {}) },
       };
@@ -373,6 +523,7 @@ export function mergeStatePatch(state: HarnessState, patch: HarnessStatePatch | 
 }
 
 export function applyAdvance(state: HarnessState, nextStep: HarnessStep, statePath?: string): void {
+  const fromStep = state.currentStep;
   assertTransition(state, nextStep);
   if (state.currentStep === "verify_review" && nextStep === "implement") {
     state.revisionCount += 1;
@@ -386,10 +537,10 @@ export function applyAdvance(state: HarnessState, nextStep: HarnessStep, statePa
     state.pr.externalRevisionCount = (state.pr.externalRevisionCount ?? 0) + 1;
   }
   if (nextStep === "close") {
-    state.human.preClose = state.human.autonomous
+    state.human.preClose = isHandsOffLevel(state)
       ? {
           status: "approved",
-          comment: "Autonomous mode: internal pre-close human gate bypassed.",
+          comment: "Difficulty level 1: internal pre-close human gate bypassed.",
           requestedAt: new Date().toISOString(),
           decidedAt: new Date().toISOString(),
         }
@@ -397,6 +548,9 @@ export function applyAdvance(state: HarnessState, nextStep: HarnessStep, statePa
           status: "pending",
           requestedAt: new Date().toISOString(),
         };
+  }
+  if (nextStep === "clarify" && state.difficulty === 3 && state.designReview.status === "not_applicable") {
+    state.designReview.status = "awaiting_options";
   }
   if (nextStep === "done" && statePath) {
     const marker = readPrReviewMarker(statePath);
@@ -406,6 +560,9 @@ export function applyAdvance(state: HarnessState, nextStep: HarnessStep, statePa
   state.currentStep = nextStep;
   if (nextStep === "done") state.finalVerdict = "success";
   if (nextStep === "failed") state.finalVerdict = "failed";
+  if (statePath) {
+    recordHarnessTransition(statePath, state, fromStep, nextStep, { allowed: true, trigger: "advance" });
+  }
 }
 
 export { STEP_ORDER };

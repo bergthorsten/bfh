@@ -18,6 +18,7 @@ function formatMissionBlock(state: HarnessState, repoLabel: string): string {
     "> **Mission:** " + (state.summary || state.ticketKey),
     "> **Ticket:** " + state.ticketKey,
     "> **Repo:** " + repoLabel,
+    "> **Difficulty:** level " + state.difficulty,
     "> **Done when:** " + doneWhen,
   ].join("\n");
 }
