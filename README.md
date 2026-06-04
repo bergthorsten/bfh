@@ -37,7 +37,7 @@ Set difficulty at start with `--level 1|2|3` (default **2**):
 | **2** | Medium (default) — agent decides when to clarify or ask the human. |
 | **3** | Hard — mandatory design review after scout (2–3 options → human choice → proposal → accept/decline) before implement. |
 
-Optional env hints for implementer model per level: `BFH_IMPLEMENT_MODEL_L1`, `BFH_IMPLEMENT_MODEL_L2`, `BFH_IMPLEMENT_MODEL_L3`.
+Per-level implementer model hints ship with the package (override in repo-root `config.jsonc` or env `BFH_IMPLEMENT_MODEL_L1`–`L3`).
 
 ## Prerequisites
 
@@ -117,30 +117,29 @@ This repository includes the same helper script for local development:
 
 It does not install Node.js for you because Node installation differs by operating system and version manager. Install Node 22+ first, then run the script.
 
-## Configure Jira
+## Configure BFH
 
-BFH can fetch Jira ticket details during `/bfh <KEY>`. Configure Jira with environment variables:
+BFH reads repo-local settings from **`config.jsonc`** at the repository root (JSON with comments). This file is **gitignored** — the installer or first `/bfh` copies `config.example.jsonc` from the package.
 
-```bash
-export JIRA_BASE_URL="https://portal.bergfreunde.de/jira"
-export JIRA_TOKEN="..."
-```
-
-Or put the same values in `~/.pi/agents/jira.json`:
-
-```json
+```jsonc
 {
-  "JIRA_BASE_URL": "https://jira.your-company.com",
-  "JIRA_TOKEN": "..."
+  "jira": {
+    "baseUrl": "https://portal.bergfreunde.de/jira",
+    // "token": "…",  // or export JIRA_TOKEN for CI
+    "authMode": "bearer"
+  },
+  "workflow": {
+    "defaultDifficulty": 2,
+    "baseBranch": "main"
+  },
 }
 ```
 
-For custom Jira fields, you can also set:
+Model defaults ship with the BFH package (see commented block in `config.example.jsonc`). Uncomment `models` in `config.jsonc` only to override.
 
-```bash
-export JIRA_ACCEPTANCE_FIELDS="customfield_12345,customfield_67890"
-export JIRA_CONSTRAINT_FIELDS="customfield_11111"
-```
+Environment variables override file values (useful for secrets in CI): `JIRA_TOKEN`, `JIRA_BASE_URL`, `BFH_BASE_BRANCH`, `JIRA_ACCEPTANCE_FIELDS`, `JIRA_CONSTRAINT_FIELDS`, and model env vars `BFH_IMPLEMENT_MODEL_L1`–`L3`.
+
+Optional: commit `config.example.jsonc` in your app repo with team workflow defaults (no tokens).
 
 If you only want to try BFH without Jira, use `--no-jira`.
 
@@ -253,6 +252,8 @@ For a ticket like `PC-120`, expect files like:
 .pi/bfh/PC-120/manual-tested.json
 .pi/bfh/PC-120/working-memory.json
 .pi/bfh/PC-120/pr-review.json
+config.jsonc
+config.example.jsonc
 .pi/bfh/principles.md
 .pi/bfh/README.md
 .pi/bfh/amendments/

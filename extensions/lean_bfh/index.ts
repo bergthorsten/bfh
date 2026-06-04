@@ -7,10 +7,12 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerBfhAttentionNotifications } from "./attention.ts";
 import { registerLeanBfhCommands } from "./commands.ts";
 import { registerBfhStateTool } from "./tool.ts";
 
 export default function leanBfh(pi: ExtensionAPI) {
   registerLeanBfhCommands(pi);
   registerBfhStateTool(pi);
+  registerBfhAttentionNotifications(pi);
 }

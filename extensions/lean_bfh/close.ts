@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { resolveHarnessBaseBranch } from "./git-prep.ts";
 import { readBriefExcerpt } from "./brief.ts";
 import { validateEvidenceMarkersForClose } from "./evidence-markers.ts";
 import { classifyCloseOutcome, resolveOutcome } from "./outcome-table.ts";
@@ -19,6 +20,7 @@ function runCommand(cwd: string, command: string, args: string[], step: string):
   try {
     return execFileSync(command, args, {
       cwd,
+      env: process.env,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
@@ -27,11 +29,10 @@ function runCommand(cwd: string, command: string, args: string[], step: string):
   }
 }
 
-export function resolveBaseBranch(cwd: string, explicit?: string): string {
-  const fromEnv = process.env.BFH_BASE_BRANCH?.trim();
+export function resolveBaseBranch(cwd: string, explicit?: string, state?: HarnessState): string {
   if (explicit?.trim()) return explicit.trim();
-  if (fromEnv) return fromEnv;
-  return detectDefaultBaseBranch(cwd);
+  if (state?.git?.baseBranch) return state.git.baseBranch;
+  return resolveHarnessBaseBranch(cwd);
 }
 
 export function assertCleanWorkingTree(cwd: string): void {
@@ -44,31 +45,6 @@ export function assertCleanWorkingTree(cwd: string): void {
   }
 }
 
-function detectDefaultBaseBranch(cwd: string): string {
-  try {
-    const originHead = runCommand(cwd, "git", ["symbolic-ref", "refs/remotes/origin/HEAD"], "Detect origin default branch");
-    const match = originHead.match(/^refs\/remotes\/origin\/(.+)$/);
-    if (match?.[1]) return match[1];
-  } catch {
-    // Fallback below.
-  }
-
-  try {
-    runCommand(cwd, "git", ["show-ref", "--verify", "refs/heads/main"], "Check main branch");
-    return "main";
-  } catch {
-    // Fallback below.
-  }
-
-  try {
-    runCommand(cwd, "git", ["show-ref", "--verify", "refs/heads/master"], "Check master branch");
-    return "master";
-  } catch {
-    // Fallback below.
-  }
-
-  return "main";
-}
 
 function extractFirstUrl(text: string): string | undefined {
   const match = text.match(/https?:\/\/\S+/);
@@ -200,9 +176,11 @@ export function executeCloseCreate(
     };
   }
 
-  const baseBranch = resolveBaseBranch(cwd, options.baseBranch);
+  const baseBranch = resolveBaseBranch(cwd, options.baseBranch, state);
   const headBranch =
-    options.headBranch?.trim() || runCommand(cwd, "git", ["rev-parse", "--abbrev-ref", "HEAD"], "Detect current branch");
+    options.headBranch?.trim() ||
+    state.git?.branch ||
+    runCommand(cwd, "git", ["rev-parse", "--abbrev-ref", "HEAD"], "Detect current branch");
   const pushBranch = options.pushBranch !== false;
 
   if (options.dryRun) {

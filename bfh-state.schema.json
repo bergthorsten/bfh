@@ -13,6 +13,7 @@
     "constraints",
     "currentStep",
     "difficulty",
+    "git",
     "designReview",
     "human",
     "openQuestions",
@@ -53,6 +54,19 @@
       "enum": ["intake", "scout", "clarify", "implement", "verify_review", "close", "pr_review", "retro", "done", "failed"]
     },
     "difficulty": { "type": "integer", "enum": [1, 2, 3] },
+    "git": {
+      "type": "object",
+      "required": ["branch", "baseBranch", "entryMode"],
+      "properties": {
+        "branch": { "type": "string", "minLength": 1 },
+        "baseBranch": { "type": "string", "minLength": 1 },
+        "entryMode": {
+          "type": "string",
+          "enum": ["greenfield", "adopt-continue", "adopt-verify", "adopt-fix", "resume"]
+        }
+      },
+      "additionalProperties": false
+    },
     "implementModelHint": { "type": "string" },
     "designReview": {
       "type": "object",

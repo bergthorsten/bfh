@@ -33,6 +33,7 @@ Lean Bergfreunde Harness state for this repo lives under \`.pi/bfh/\`.
 | \`<TICKET>/working-memory.json\` | Repair-loop context |
 | \`<TICKET>/pr-review.json\` | Last GitHub PR review sync (harness only) |
 | \`principles.md\` | Enforced vs advisory rules for reviewer |
+| \`../config.jsonc\` | Repo-root harness settings (gitignored; copy from \`config.example.jsonc\`) |
 | \`amendments/\` | Staged structured harness improvement proposals from retro |
 
 **Commands:** \`/bfh\`, \`/bfh-resume\`, \`/bfh-verify\`, \`/bfh-close\`, \`/bfh-pr-sync\`, \`/bfh-retro\`

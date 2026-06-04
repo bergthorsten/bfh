@@ -13,18 +13,22 @@ import {
   type CreateStateOptions,
   type DifficultyLevel,
   type HarnessStep,
+  type GitEntryMode,
+  type HarnessGitState,
   type HumanGatePreClose,
   type HumanGatePreImplement,
   type JiraIssueSummary,
 } from "./types.ts";
 import { normalizeIssueKey } from "./args.ts";
+import { loadBfhConfig, resolveImplementModelHint } from "./bfh-config.ts";
+import { DEFAULT_BASE_BRANCH, deriveBranchName, resolveHarnessBaseBranch } from "./git-prep.ts";
 import {
   applyHandsOffHumanBypass,
   createInitialDesignReview,
   DEFAULT_DIFFICULTY,
   designReviewBlocksImplement,
   isHandsOffLevel,
-  resolveImplementModelHint,
+  requiresMandatoryDesignReview,
 } from "./difficulty.ts";
 import { ensureDesignReviewShape } from "./design-review.ts";
 import { recordHarnessTransition } from "./metrics.ts";
@@ -70,6 +74,35 @@ function extractConstraints(description: string, labels: string[]): string[] {
 function writeJson(filePath: string, data: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+function ensureGitShape(state: HarnessState): void {
+  const fallback: HarnessGitState = {
+    branch: deriveBranchName(state.ticketKey, state.summary),
+    baseBranch: DEFAULT_BASE_BRANCH,
+    entryMode: "resume",
+  };
+
+  const input = state.git && typeof state.git === "object" ? state.git : fallback;
+  const allowedModes = new Set<HarnessGitState["entryMode"]>([
+    "greenfield",
+    "adopt-continue",
+    "adopt-verify",
+    "adopt-fix",
+    "resume",
+  ]);
+  const entryMode = allowedModes.has(input.entryMode as HarnessGitState["entryMode"])
+    ? (input.entryMode as HarnessGitState["entryMode"])
+    : fallback.entryMode;
+
+  state.git = {
+    branch: typeof input.branch === "string" && input.branch.trim() ? input.branch.trim() : fallback.branch,
+    baseBranch:
+      typeof input.baseBranch === "string" && input.baseBranch.trim()
+        ? input.baseBranch.trim()
+        : fallback.baseBranch,
+    entryMode,
+  };
 }
 
 function ensureHumanGatePreImplement(value: unknown): HumanGatePreImplement {
@@ -135,6 +168,7 @@ export function assertStateShape(state: HarnessState): void {
     "constraints",
     "currentStep",
     "difficulty",
+    "git",
     "designReview",
     "openQuestions",
     "scout",
@@ -169,6 +203,7 @@ export function assertStateShape(state: HarnessState): void {
 
   ensureDifficultyShape(state);
   ensureHumanShape(state);
+  ensureGitShape(state);
   if (!Array.isArray(state.evidence) || !Array.isArray(state.acceptanceCriteria)) {
     throw new Error("State validation failed: evidence and acceptanceCriteria must be arrays.");
   }
@@ -232,17 +267,24 @@ export function writeState(filePath: string, state: HarnessState): HarnessState 
   return state;
 }
 
-export function configureStateForDifficulty(state: HarnessState, difficulty: DifficultyLevel): void {
+export function configureStateForDifficulty(
+  state: HarnessState,
+  difficulty: DifficultyLevel,
+  cwd: string,
+): void {
+  const workflow = loadBfhConfig(cwd).workflow;
   state.difficulty = difficulty;
-  state.designReview = createInitialDesignReview(difficulty);
-  state.implementModelHint = resolveImplementModelHint(difficulty);
+  state.designReview = createInitialDesignReview(difficulty, workflow.designReviewRevisionLimit);
+  state.implementModelHint = resolveImplementModelHint(cwd, difficulty);
   if (difficulty === 1) {
     applyHandsOffHumanBypass(state, "Difficulty level 1: internal human checkpoints bypassed.");
   }
 }
 
 export function createState(issue: JiraIssueSummary, options: CreateStateOptions = {}): HarnessState {
-  const difficulty = options.difficulty ?? DEFAULT_DIFFICULTY;
+  const cwd = options.cwd ?? process.cwd();
+  const workflow = loadBfhConfig(cwd).workflow;
+  const difficulty = options.difficulty ?? workflow.defaultDifficulty ?? DEFAULT_DIFFICULTY;
   const now = new Date().toISOString();
   const state: HarnessState = {
     schemaVersion: 1,
@@ -262,8 +304,13 @@ export function createState(issue: JiraIssueSummary, options: CreateStateOptions
     ).slice(0, 16),
     currentStep: "intake",
     difficulty,
-    implementModelHint: resolveImplementModelHint(difficulty),
-    designReview: createInitialDesignReview(difficulty),
+    git: options.git ?? {
+      branch: deriveBranchName(issue.key, issue.title),
+      baseBranch: resolveHarnessBaseBranch(cwd),
+      entryMode: "greenfield",
+    },
+    implementModelHint: resolveImplementModelHint(cwd, difficulty),
+    designReview: createInitialDesignReview(difficulty, workflow.designReviewRevisionLimit),
     human: {
       preImplement: {
         required: false,
@@ -283,7 +330,7 @@ export function createState(issue: JiraIssueSummary, options: CreateStateOptions
     },
     implementationPlan: [],
     revisionCount: 0,
-    revisionLimit: 2,
+    revisionLimit: workflow.verifyRevisionLimit,
     evidence: [],
     review: {
       verdict: "pending",
@@ -299,7 +346,7 @@ export function createState(issue: JiraIssueSummary, options: CreateStateOptions
       lastSyncedAt: null,
       checksFailing: 0,
       externalRevisionCount: 0,
-      externalRevisionLimit: 2,
+      externalRevisionLimit: workflow.externalPrRevisionLimit,
     },
     finalVerdict: "pending",
     retroNotes: [],
@@ -310,6 +357,59 @@ export function createState(issue: JiraIssueSummary, options: CreateStateOptions
     applyHandsOffHumanBypass(state, "Difficulty level 1: internal human checkpoints bypassed.");
   }
   return state;
+}
+
+/** Initial workflow step when adopting an existing branch (skips scout where appropriate). */
+export function resolveAdoptInitialStep(entryMode: GitEntryMode): HarnessStep {
+  switch (entryMode) {
+    case "adopt-verify":
+      return "verify_review";
+    case "adopt-fix":
+      return "implement";
+    case "adopt-continue":
+      return "scout";
+    default:
+      return "intake";
+  }
+}
+
+/** Apply mechanical entry-mode shortcuts after /bfh git prep on an existing branch. */
+export function applyAdoptEntryMode(state: HarnessState): void {
+  const initialStep = resolveAdoptInitialStep(state.git.entryMode);
+  if (initialStep === "intake") return;
+
+  const now = new Date().toISOString();
+  state.currentStep = initialStep;
+
+  if (state.git.entryMode === "adopt-fix" && requiresMandatoryDesignReview(state)) {
+    state.designReview = {
+      ...state.designReview,
+      status: "approved",
+      humanSteering: "Adopt mode: design review skipped for existing branch refine/fix.",
+      decidedAt: now,
+    };
+  }
+
+  if (state.git.entryMode === "adopt-verify" || state.git.entryMode === "adopt-fix") {
+    state.scout.summary =
+      "Scout skipped (adopt mode). Use ticket context, git log, and diff against base branch.";
+    state.evidence.push({
+      type: "note",
+      summary: `Scout skipped; starting at ${initialStep} for entry mode ${state.git.entryMode}.`,
+      createdAt: now,
+    });
+    return;
+  }
+
+  if (state.git.entryMode === "adopt-continue") {
+    state.scout.summary =
+      "Adopt mode: scout is recon only — map existing branch work vs remaining ticket scope.";
+    state.evidence.push({
+      type: "note",
+      summary: "Adopt continue: starting at scout for branch recon.",
+      createdAt: now,
+    });
+  }
 }
 
 export function activeStatePathFromSession(ctx: ExtensionContext): string | undefined {

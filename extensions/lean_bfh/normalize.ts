@@ -72,7 +72,7 @@ export function normalizeScoutFromAgentResult(envelope: ParsedAgentResult, fallb
 
   const relevantFiles = Array.isArray(findings.relevantFiles)
     ? findings.relevantFiles
-        .filter((item) => item && typeof item.path === "string")
+        .filter((item) => item && typeof item.path === "string" && item.path.trim().length > 0)
         .slice(0, 15)
         .map((item) => ({
           path: String(item.path).trim(),

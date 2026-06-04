@@ -7,6 +7,7 @@ export function stateToolText(statePath: string, state: HarnessState): string {
   return [
     `State: ${statePath}`,
     `Step: ${state.currentStep}`,
+    `Branch: ${state.git.branch} (base ${state.git.baseBranch})`,
     `Difficulty: ${state.difficulty}`,
     `Revision: ${state.revisionCount}/${state.revisionLimit}`,
     `Review: ${state.review.verdict} (${formatReviewCountsLine(state.review)})`,

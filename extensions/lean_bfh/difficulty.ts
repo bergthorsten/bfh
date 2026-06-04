@@ -8,12 +8,6 @@ const DIFFICULTY_LABELS: Record<DifficultyLevel, string> = {
   3: "hard (mandatory design review before implement)",
 };
 
-const IMPLEMENT_MODEL_ENV: Record<DifficultyLevel, string> = {
-  1: "BFH_IMPLEMENT_MODEL_L1",
-  2: "BFH_IMPLEMENT_MODEL_L2",
-  3: "BFH_IMPLEMENT_MODEL_L3",
-};
-
 export function parseDifficultyLevel(raw: string | undefined): DifficultyLevel | undefined {
   if (!raw) return undefined;
   const n = Number(raw.trim());
@@ -33,25 +27,23 @@ export function requiresMandatoryDesignReview(state: HarnessState): boolean {
   return state.difficulty === 3;
 }
 
-export function resolveImplementModelHint(level: DifficultyLevel): string | undefined {
-  const value = process.env[IMPLEMENT_MODEL_ENV[level]]?.trim();
-  return value || undefined;
-}
-
-export function createInitialDesignReview(difficulty: DifficultyLevel): DesignReview {
+export function createInitialDesignReview(
+  difficulty: DifficultyLevel,
+  revisionLimit = 3,
+): DesignReview {
   if (difficulty !== 3) {
     return {
       status: "not_applicable",
       options: [],
       revisionCount: 0,
-      revisionLimit: 3,
+      revisionLimit,
     };
   }
   return {
     status: "awaiting_options",
     options: [],
     revisionCount: 0,
-    revisionLimit: 3,
+    revisionLimit,
   };
 }
 

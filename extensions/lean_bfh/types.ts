@@ -1,5 +1,4 @@
 import * as path from "node:path";
-import * as os from "node:os";
 
 export type JiraAuthMode = "bearer" | "basic";
 
@@ -91,6 +90,19 @@ export type HumanGatePreClose = {
 /** 1 = easy/hands-off, 2 = medium (default), 3 = hard (mandatory design review). */
 export type DifficultyLevel = 1 | 2 | 3;
 
+export type GitEntryMode =
+  | "greenfield"
+  | "adopt-continue"
+  | "adopt-verify"
+  | "adopt-fix"
+  | "resume";
+
+export type HarnessGitState = {
+  branch: string;
+  baseBranch: string;
+  entryMode: GitEntryMode;
+};
+
 export type DesignOption = {
   id: string;
   title: string;
@@ -133,7 +145,9 @@ export type HarnessState = {
   currentStep: HarnessStep;
   /** Run difficulty set at /bfh start (default 2). */
   difficulty: DifficultyLevel;
-  /** Suggested implementer model from env (BFH_IMPLEMENT_MODEL_L*); informational for the agent. */
+  /** Feature branch + base branch recorded at /bfh git prep. */
+  git: HarnessGitState;
+  /** Suggested implementer model from config/env; informational for the agent. */
   implementModelHint?: string;
   designReview: DesignReview;
   human: {
@@ -252,12 +266,13 @@ export type HarnessStartArgs = {
 };
 
 export type CreateStateOptions = {
+  cwd?: string;
   difficulty?: DifficultyLevel;
+  git?: HarnessGitState;
 };
 
 export const ISSUE_KEY_PATTERN = /^[A-Z][A-Z0-9]+-\d+$/;
 export const DEFAULT_JIRA_BASE_URL = "https://portal.bergfreunde.de/jira";
-export const JIRA_CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "jira.json");
 export const HARNESS_ENTRY_TYPE = "lean_bfh_state";
 export const STATE_DIR = path.join(".pi", "bfh");
 

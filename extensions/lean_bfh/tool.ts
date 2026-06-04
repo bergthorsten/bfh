@@ -4,6 +4,7 @@ import { agentResultParsedOk, parseAgentResult } from "./agent-result.ts";
 import { appendBriefProgress } from "./brief.ts";
 import { executeCloseCreate } from "./close.ts";
 import { stateToolText } from "./display.ts";
+import { loadBfhConfig, resolveSubagentModel } from "./bfh-config.ts";
 import { buildTouchedFileContext, discoverTouchedFiles } from "./git-diff.ts";
 import { buildScoutInput, normalizeReviewFromText, normalizeScoutFromText } from "./normalize.ts";
 import { getReviewSystemPrompt } from "./prompt-loader.ts";
@@ -93,7 +94,8 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
           throw new Error(`scout_auto action requires currentStep=scout (found ${state.currentStep}).`);
         }
 
-        const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+        const sessionModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+        const model = resolveSubagentModel(ctx.cwd, "scout", sessionModel);
         recordModelUse(statePath, model, "scout_auto");
         const scoutInput = buildScoutInput(state, params.scoutFocus);
         const scoutResult = await runScoutViaSubagentWithRetry({
@@ -143,8 +145,11 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
       }
 
       if (action === "diff_context") {
+        const configMax = loadBfhConfig(ctx.cwd).workflow.maxReviewTouchedFiles;
         const maxFiles =
-          Number.isFinite(params.maxFiles) && (params.maxFiles ?? 0) > 0 ? Math.floor(params.maxFiles!) : 20;
+          Number.isFinite(params.maxFiles) && (params.maxFiles ?? 0) > 0
+            ? Math.floor(params.maxFiles!)
+            : configMax;
         const touchedFiles = discoverTouchedFiles(ctx.cwd, maxFiles);
         const bundle = buildTouchedFileContext(ctx.cwd, touchedFiles);
         const summary = touchedFiles.length
@@ -178,8 +183,11 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
           throw new Error(`verify_review action requires currentStep=verify_review (found ${state.currentStep}).`);
         }
 
+        const configMax = loadBfhConfig(ctx.cwd).workflow.maxReviewTouchedFiles;
         const maxFiles =
-          Number.isFinite(params.maxFiles) && (params.maxFiles ?? 0) > 0 ? Math.floor(params.maxFiles!) : 20;
+          Number.isFinite(params.maxFiles) && (params.maxFiles ?? 0) > 0
+            ? Math.floor(params.maxFiles!)
+            : configMax;
         const touchedFiles = discoverTouchedFiles(ctx.cwd, maxFiles);
         const bundle = buildTouchedFileContext(ctx.cwd, touchedFiles);
         const reviewerInput = [
@@ -195,7 +203,8 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
           .filter((v): v is string => Boolean(v))
           .join("\n");
 
-        const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+        const sessionModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+        const model = resolveSubagentModel(ctx.cwd, "reviewer", sessionModel);
         recordModelUse(statePath, model, "verify_review");
         const subagentResult = await runFreshReviewViaSubagentWithRetry({
           cwd: ctx.cwd,

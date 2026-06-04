@@ -31,7 +31,9 @@ Humans steer, agents execute. You provide the ticket + repo context; BFH gives t
 | `extensions/lean_bfh/close.ts` | Close gates + draft PR creation via `gh`. |
 | `extensions/lean_bfh/subagent.ts` | Spawns fresh-context scout/review subagents; parses `AGENT_RESULT`. |
 | `extensions/lean_bfh/evidence-markers.ts` | Writes `tested.json` / `reviewed.json` markers; close-gate evidence. |
+| `extensions/lean_bfh/bfh-config.ts` | Loads repo-root `config.jsonc` (JSONC); Jira, workflow, models. |
 | `extensions/lean_bfh/jira.ts` | Fetches ticket details + custom fields during intake. |
+| `config.example.jsonc` | Shipped template (no secrets); copied to gitignored `config.jsonc`. |
 | `extensions/lean_bfh/brief.ts` | Builds `.brief.md`, kickoff, and resume prompts. |
 | `extensions/lean_bfh/pr-sync.ts` | Pulls GitHub PR review status; gates `done` until approved. |
 | `extensions/lean_bfh/retro.ts` | Runs retro: appends `LEARNINGS.md`, stages amendments. |
@@ -47,8 +49,16 @@ Humans steer, agents execute. You provide the ticket + repo context; BFH gives t
 
 We are in development phase, so we can rip apart features without debrecating it! No customers yet, we decide what to bring in or rip out!
 
+## Getting better over time, instead of getting worse
 Before implementation, look for opportunities to prefactor the code to make the implementation easier. "Make the change easy, then make the easy change."
 
 
 ## Coding Style
-Write modern / clean / and easy to read - easy to maintain code!
+- Write modern, clean, and maintainable code.
+- Prioritize readability and simplicity.
+- Prefer solutions that are easy for others to understand and extend.
+
+## Testing
+- Before finishing any work, run the full test suite: `bun check`
+- For all new code, consider whether new unit tests should be added.
+- Ensure new functionality is covered by appropriate tests whenever practical.

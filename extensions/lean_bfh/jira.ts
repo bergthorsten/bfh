@@ -1,11 +1,5 @@
-import * as fs from "node:fs";
-import {
-  DEFAULT_JIRA_BASE_URL,
-  JIRA_CONFIG_PATH,
-  type JiraAuthMode,
-  type JiraIssueSummary,
-  type JiraStoredConfig,
-} from "./types.ts";
+import { loadBfhConfig, resolveJiraConfigPath } from "./bfh-config.ts";
+import type { JiraIssueSummary } from "./types.ts";
 
 type JiraApiJson = Record<string, unknown>;
 
@@ -35,54 +29,29 @@ type JiraIssueResponse = {
   fields?: JiraIssueFields;
 };
 
-function normalizeBaseUrl(raw: string): string {
-  return raw.trim().replace(/\/+$/, "");
-}
-
-function readJiraConfigFile(): JiraStoredConfig {
-  try {
-    if (!fs.existsSync(JIRA_CONFIG_PATH)) return {};
-    const raw = fs.readFileSync(JIRA_CONFIG_PATH, "utf8").trim();
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? (parsed as JiraStoredConfig) : {};
-  } catch {
-    return {};
+function getAuthHeader(cwd: string): string {
+  const { jira } = loadBfhConfig(cwd);
+  const token = jira.token;
+  if (!token) {
+    throw new Error(`Missing Jira token. Set JIRA_TOKEN or add jira.token to ${resolveJiraConfigPath(cwd)}.`);
   }
-}
 
-function resolveJiraConfigValue(key: keyof JiraStoredConfig): string | undefined {
-  const envValue = process.env[key]?.trim();
-  if (envValue) return envValue;
-  const fileValue = readJiraConfigFile()[key]?.trim();
-  return fileValue || undefined;
-}
-
-function getBaseUrl(): string {
-  return normalizeBaseUrl(resolveJiraConfigValue("JIRA_BASE_URL") || DEFAULT_JIRA_BASE_URL);
-}
-
-function getAuthHeader(): string {
-  const mode = (resolveJiraConfigValue("JIRA_AUTH_MODE") || "bearer").toLowerCase() as JiraAuthMode;
-  const token = resolveJiraConfigValue("JIRA_TOKEN");
-  if (!token) throw new Error(`Missing Jira token. Set JIRA_TOKEN or add it to ${JIRA_CONFIG_PATH}.`);
-
-  if (mode === "basic") {
-    const email = resolveJiraConfigValue("JIRA_EMAIL");
-    if (!email) throw new Error("Missing JIRA_EMAIL for basic Jira auth mode.");
-    return `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`;
+  if (jira.authMode === "basic") {
+    if (!jira.email) throw new Error("Missing jira.email (or JIRA_EMAIL) for basic Jira auth mode.");
+    return `Basic ${Buffer.from(`${jira.email}:${token}`).toString("base64")}`;
   }
 
   return `Bearer ${token}`;
 }
 
-async function jiraFetch(restPath: string, init?: RequestInit): Promise<JiraApiJson> {
-  const response = await fetch(`${getBaseUrl()}/rest/api/2${restPath}`, {
+async function jiraFetch(cwd: string, restPath: string, init?: RequestInit): Promise<JiraApiJson> {
+  const { jira } = loadBfhConfig(cwd);
+  const response = await fetch(`${jira.baseUrl}/rest/api/2${restPath}`, {
     ...init,
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
-      Authorization: getAuthHeader(),
+      Authorization: getAuthHeader(cwd),
       ...(init?.headers || {}),
     },
   });
@@ -121,12 +90,6 @@ function jiraValueToText(value: unknown): string {
   return texts.join(" ").replace(/\s+/g, " ").trim();
 }
 
-function customFieldIds(envKey: string): string[] {
-  const raw = process.env[envKey]?.trim();
-  if (!raw) return [];
-  return raw.split(",").map((s) => s.trim()).filter(Boolean);
-}
-
 function extractLinkedTickets(issue: JiraIssueResponse): Array<{ key: string; type: string }> {
   const links = issue.fields?.issuelinks;
   if (!Array.isArray(links)) return [];
@@ -140,9 +103,8 @@ function extractLinkedTickets(issue: JiraIssueResponse): Array<{ key: string; ty
   return result;
 }
 
-export async function fetchIssue(issueKey: string): Promise<JiraIssueSummary> {
-  const acFieldIds = customFieldIds("JIRA_ACCEPTANCE_FIELDS");
-  const constraintFieldIds = customFieldIds("JIRA_CONSTRAINT_FIELDS");
+export async function fetchIssue(issueKey: string, cwd: string): Promise<JiraIssueSummary> {
+  const { jira } = loadBfhConfig(cwd);
   const fields = [
     "summary",
     "issuetype",
@@ -150,22 +112,23 @@ export async function fetchIssue(issueKey: string): Promise<JiraIssueSummary> {
     "description",
     "labels",
     "issuelinks",
-    ...acFieldIds,
-    ...constraintFieldIds,
+    ...jira.acceptanceFields,
+    ...jira.constraintFields,
   ].join(",");
   const issue = (await jiraFetch(
+    cwd,
     `/issue/${encodeURIComponent(issueKey)}?fields=${fields}`,
   )) as JiraIssueResponse;
   const f = issue.fields ?? {};
 
   const acceptanceCriteriaExtras: string[] = [];
-  for (const id of acFieldIds) {
+  for (const id of jira.acceptanceFields) {
     const text = jiraValueToText(f?.[id]);
     if (text) acceptanceCriteriaExtras.push(text);
   }
 
   const constraintsExtras: string[] = [];
-  for (const id of constraintFieldIds) {
+  for (const id of jira.constraintFields) {
     const text = jiraValueToText(f?.[id]);
     if (text) constraintsExtras.push(text);
   }

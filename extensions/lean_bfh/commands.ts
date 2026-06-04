@@ -6,8 +6,10 @@ import { writeReviewedMarker } from "./evidence-markers.ts";
 import { renderStatus, stateToolText } from "./display.ts";
 import { buildTouchedFileContext, discoverTouchedFiles } from "./git-diff.ts";
 import { fetchIssue } from "./jira.ts";
+import { prepareGitForResume, prepareGitForStart } from "./git-prep.ts";
 import { appendBriefProgress, createBrief } from "./brief.ts";
 import { deliverHarnessPrompt } from "./kickoff.ts";
+import { ensureBfhConfigFile, loadBfhConfig, resolveSubagentModel } from "./bfh-config.ts";
 import { ensureHarnessReadme, ensurePrinciplesFile } from "./harness-docs.ts";
 import { buildScoutInput, normalizeReviewFromText, normalizeScoutFromText } from "./normalize.ts";
 import { agentResultParsedOk, parseAgentResult } from "./agent-result.ts";
@@ -28,6 +30,7 @@ import { clearBfhProgressStatus, isBfhWorkflowActive, setBfhProgressStatus } fro
 import {
   activeStatePathFromSession,
   applyAdvance,
+  applyAdoptEntryMode,
   createState,
   listStateFiles,
   readState,
@@ -74,7 +77,15 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       return;
     }
 
-    let { issueKey, noJira, autoGo, difficulty } = parseHarnessStartArgs(args || "");
+    const configBootstrap = ensureBfhConfigFile(ctx.cwd);
+    if (configBootstrap.created) {
+      ctx.ui.notify(
+        `Created BFH config: ${configBootstrap.configPath} — add Jira token or set JIRA_TOKEN.`,
+        "info",
+      );
+    }
+
+    let { issueKey, noJira, autoGo, difficulty } = parseHarnessStartArgs(args || "", ctx.cwd);
     if (!issueKey && ctx.hasUI) {
       const input = await ctx.ui.input("Jira ticket key", "e.g. PC-120");
       if (!input) return;
@@ -105,7 +116,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       };
     } else {
       try {
-        issue = await fetchIssue(issueKey);
+        issue = await fetchIssue(issueKey, ctx.cwd);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (!ctx.hasUI) {
@@ -131,13 +142,54 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       }
     }
 
-    const state = createState(issue, { difficulty });
+    const statePath = statePathFor(ctx.cwd, issueKey);
+    if (fs.existsSync(statePath)) {
+      ctx.ui.notify(
+        `Lean BFH state already exists for ${issueKey}. Use /bfh-resume ${issueKey} to continue that run.`,
+        "error",
+      );
+      return;
+    }
+
+    let gitPrep;
+    try {
+      gitPrep = await prepareGitForStart(ctx.cwd, ctx, { ticketKey: issueKey, summary: issue.title });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.ui.notify(`Git preparation failed: ${message}`, "error");
+      return;
+    }
+    if (!gitPrep) return;
+
+    const state = createState(issue, {
+      cwd: ctx.cwd,
+      difficulty,
+      git: {
+        branch: gitPrep.branch,
+        baseBranch: gitPrep.baseBranch,
+        entryMode: gitPrep.entryMode,
+      },
+    });
     state.evidence.push({
       type: "note",
       summary: `Run started at difficulty level ${difficulty}.`,
       createdAt: new Date().toISOString(),
     });
-    const statePath = statePathFor(ctx.cwd, issueKey);
+    if (gitPrep.commitsAhead > 0) {
+      state.evidence.push({
+        type: "note",
+        summary: `Existing branch has ${gitPrep.commitsAhead} commit(s) ahead of ${gitPrep.baseBranch}.`,
+        createdAt: new Date().toISOString(),
+      });
+      if (gitPrep.commitLog.trim()) {
+        state.evidence.push({
+          type: "note",
+          summary: `Commits on branch:\n${gitPrep.commitLog.trim()}`,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+    applyAdoptEntryMode(state);
     writeState(statePath, state);
     initHarnessMetrics(statePath, state, {
       noJira,
@@ -228,8 +280,11 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
         return;
       }
 
-      const { autoGo } = parseHarnessStartArgs(args || "");
-      const explicit = resolveStatePathFromArg(ctx.cwd, args || "");
+      const parsedArgs = parseHarnessStartArgs(args || "", ctx.cwd);
+      const autoGo = parsedArgs.autoGo;
+      const explicit =
+        resolveStatePathFromArg(ctx.cwd, args || "") ||
+        (parsedArgs.issueKey ? resolveStatePathFromArg(ctx.cwd, parsedArgs.issueKey) : undefined);
       const statePath = explicit || activeStatePathFromSession(ctx) || listStateFiles(ctx.cwd)[0];
       if (!statePath || !fs.existsSync(statePath)) {
         ctx.ui.notify("No lean BFH state found to resume.", "warning");
@@ -239,6 +294,18 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       const state = readState(statePath);
       recordHarnessCommand(statePath, state, "bfh-resume");
       recordRunResumed(statePath, state);
+
+      try {
+        const gitReady = await prepareGitForResume(ctx.cwd, ctx, state.git);
+        if (!gitReady) return;
+        state.git.entryMode = "resume";
+        writeState(statePath, state);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.ui.notify(`Git checkout failed: ${message}`, "error");
+        return;
+      }
+
       setBfhProgressStatus(ctx, state);
       pi.appendEntry(HARNESS_ENTRY_TYPE, {
         issueKey: state.ticketKey,
@@ -268,7 +335,8 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
         return;
       }
 
-      const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+      const sessionModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+      const model = resolveSubagentModel(ctx.cwd, "scout", sessionModel);
       recordModelUse(statePath, model, "bfh-scout");
       let scoutResult;
       try {
@@ -321,9 +389,11 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
         return;
       }
 
-      const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+      const sessionModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+      const model = resolveSubagentModel(ctx.cwd, "reviewer", sessionModel);
       recordModelUse(statePath, model, "bfh-verify");
-      const touchedFiles = discoverTouchedFiles(ctx.cwd, 20);
+      const maxFiles = loadBfhConfig(ctx.cwd).workflow.maxReviewTouchedFiles;
+      const touchedFiles = discoverTouchedFiles(ctx.cwd, maxFiles);
       const contextBundle = buildTouchedFileContext(ctx.cwd, touchedFiles);
       const reviewerInput = [
         `Ticket: ${state.ticketKey}`,
