@@ -1,52 +1,14 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { spawn } from "node:child_process";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { loadAgentPrompt } from "./prompt-loader.ts";
 import { recordSubagentRun } from "./metrics.ts";
 import { shouldRetryAgentParse } from "./normalize.ts";
-import type { HarnessState, PiJsonContentPart, PiJsonEvent, PiJsonMessage, SubagentRunResult } from "./types.ts";
-
-function getPiInvocation(args: string[]): { command: string; args: string[] } {
-  const currentScript = process.argv[1];
-  const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
-  if (currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
-    return { command: process.execPath, args: [currentScript, ...args] };
-  }
-
-  const execName = path.basename(process.execPath).toLowerCase();
-  const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
-  if (!isGenericRuntime) {
-    return { command: process.execPath, args };
-  }
-
-  return { command: "pi", args };
-}
-
-function extractAssistantText(message: PiJsonMessage | undefined): string {
-  const content = message?.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-
-  return content
-    .filter((part): part is PiJsonContentPart & { type: "text"; text: string } => part?.type === "text" && typeof part.text === "string")
-    .map((part) => part.text)
-    .join("\n")
-    .trim();
-}
-
-function hasSubagentToolCall(message: PiJsonMessage | undefined): boolean {
-  const content = message?.content;
-  return (
-    Array.isArray(content) && content.some((part) => part?.type === "toolCall" && part?.name === "subagent")
-  );
-}
-
-function countToolCalls(message: PiJsonMessage | undefined): number {
-  const content = message?.content;
-  if (!Array.isArray(content)) return 0;
-  return content.filter((part) => part?.type === "toolCall").length;
-}
+import {
+  extractTextFromSubagentResponse,
+  metricsFromSubagentResponse,
+  runSubagentViaPiSubagents,
+  type PiSubagentParams,
+} from "./pi-subagents-bridge.ts";
+import type { HarnessState, SubagentRunResult } from "./types.ts";
 
 function buildSubagentReviewerTask(systemPrompt: string, reviewerInput: string): string {
   return [systemPrompt, "", "## Ticket + implementation context", reviewerInput].join("\n");
@@ -56,38 +18,28 @@ function buildScoutSubagentTask(scoutPrompt: string, scoutInput: string): string
   return [scoutPrompt, "", "## Ticket + repository context", scoutInput].join("\n");
 }
 
-function buildSubagentInvocationPrompt(agent: "reviewer" | "scout", task: string): string {
-  return [
-    `Use the \`subagent\` tool to run a fresh-context \`${agent}\` agent exactly once.`,
-    "Do not perform the requested work directly in this parent agent.",
-    `After the subagent returns, output only the ${agent} output text (including the AGENT_RESULT block).`,
-    "",
-    "Call shape:",
-    `subagent({ agent: \"${agent}\", task: <task>, context: \"fresh\", output: false, progress: false })`,
-    "",
-    "Task:",
-    "```",
+function buildSubagentParams(
+  agent: "scout" | "reviewer",
+  task: string,
+  options: { cwd: string; model?: string },
+): PiSubagentParams {
+  return {
+    agent,
     task,
-    "```",
-  ].join("\n");
+    context: "fresh",
+    progress: true,
+    ...(options.model ? { model: options.model } : {}),
+    ...(options.cwd ? { cwd: options.cwd } : {}),
+  };
 }
 
-export function buildSubagentOrchestrationPrompt(systemPrompt: string, reviewerInput: string): string {
-  const reviewerTask = buildSubagentReviewerTask(systemPrompt, reviewerInput);
-  return buildSubagentInvocationPrompt("reviewer", reviewerTask);
-}
-
-export function buildScoutSubagentOrchestrationPrompt(scoutInput: string): string {
-  const scoutPrompt = loadAgentPrompt("scout");
-  return buildSubagentInvocationPrompt("scout", buildScoutSubagentTask(scoutPrompt, scoutInput));
-}
-
-async function runSubagentOrchestration(options: {
+async function runHarnessSubagent(options: {
+  pi: ExtensionAPI;
+  ctx: ExtensionContext;
   cwd: string;
-  orchestrationPrompt: string;
-  tmpPrefix: string;
+  agent: "scout" | "reviewer";
+  task: string;
   label: string;
-  role: "scout" | "reviewer";
   model?: string;
   signal?: AbortSignal;
   statePath?: string;
@@ -98,133 +50,41 @@ async function runSubagentOrchestration(options: {
   }
 
   const startedAt = Date.now();
-  let toolCalls = 0;
-
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), options.tmpPrefix));
-  const inputPath = path.join(tmpDir, "input.md");
-  fs.writeFileSync(inputPath, options.orchestrationPrompt, { encoding: "utf8" });
-
-  const args = ["--mode", "json", "-p", "--no-session", "--tools", "subagent"];
-  if (options.model) args.push("--model", options.model);
-  args.push(`@${inputPath}`);
-
-  const invocation = getPiInvocation(args);
-  let stdoutBuffer = "";
-  let stderr = "";
-  let latestAssistantText = "";
-  let latestSubagentToolText = "";
-  let stopReason: string | undefined;
-  let usedSubagent = false;
-  let aborted = false;
-
-  const proc = spawn(invocation.command, invocation.args, {
+  const params = buildSubagentParams(options.agent, options.task, {
     cwd: options.cwd,
-    shell: false,
-    stdio: ["ignore", "pipe", "pipe"],
+    model: options.model,
   });
 
-  const processLine = (line: string) => {
-    if (!line.trim()) return;
+  const response = await runSubagentViaPiSubagents(options.pi, options.ctx, params, {
+    signal: options.signal,
+  });
 
-    let event: PiJsonEvent;
-    try {
-      event = JSON.parse(line) as PiJsonEvent;
-    } catch {
-      return;
-    }
+  const text = extractTextFromSubagentResponse(response);
+  const { exitCode, toolCalls } = metricsFromSubagentResponse(response);
 
-    if (event.type === "message_end" && event.message?.role === "assistant") {
-      toolCalls += countToolCalls(event.message);
-      if (hasSubagentToolCall(event.message)) usedSubagent = true;
-      const text = extractAssistantText(event.message);
-      if (text) latestAssistantText = text;
-      if (typeof event.message.stopReason === "string") stopReason = event.message.stopReason;
-    }
-
-    if (event.type === "tool_result_end" && event.message?.toolName === "subagent") {
-      usedSubagent = true;
-      const text = extractAssistantText(event.message);
-      if (text) latestSubagentToolText = text;
-    }
-
-    if (event.type === "turn_end" && Array.isArray(event.toolResults)) {
-      for (const toolResult of event.toolResults) {
-        if (toolResult.toolName === "subagent") {
-          usedSubagent = true;
-          const text = extractAssistantText(toolResult);
-          if (text) latestSubagentToolText = text;
-        }
-      }
-    }
+  const result: SubagentRunResult = {
+    text,
+    stderr: "",
+    exitCode,
+    usedSubagent: true,
   };
 
-  const onAbort = () => {
-    aborted = true;
-    proc.kill("SIGTERM");
-    setTimeout(() => {
-      if (!proc.killed) proc.kill("SIGKILL");
-    }, 5000);
-  };
-
-  if (options.signal) {
-    options.signal.addEventListener("abort", onAbort, { once: true });
-  }
-
-  try {
-    const exitCode = await new Promise<number>((resolve, reject) => {
-      proc.stdout.on("data", (data: Buffer) => {
-        stdoutBuffer += data.toString("utf8");
-        const lines = stdoutBuffer.split("\n");
-        stdoutBuffer = lines.pop() ?? "";
-        for (const line of lines) processLine(line);
-      });
-
-      proc.stderr.on("data", (data: Buffer) => {
-        stderr += data.toString("utf8");
-      });
-
-      proc.on("error", (error) => reject(error));
-      proc.on("close", (code) => {
-        if (stdoutBuffer.trim()) processLine(stdoutBuffer);
-        resolve(code ?? 0);
-      });
-    });
-
-    if (aborted) throw new Error(`${options.label} subagent aborted.`);
-    if (exitCode !== 0) {
-      throw new Error(`${options.label} subagent failed (exit ${exitCode}): ${stderr.trim() || "no stderr output"}`);
-    }
-    if (!usedSubagent) {
-      throw new Error(`${options.label} failed: subagent tool was not used by the runner.`);
-    }
-
-    const result: SubagentRunResult = {
-      text: latestAssistantText || latestSubagentToolText,
-      stopReason,
-      stderr,
+  if (options.statePath) {
+    recordSubagentRun(options.statePath, options.state, {
+      role: options.agent,
+      durationMs: Date.now() - startedAt,
       exitCode,
-      usedSubagent,
-    };
-
-    if (options.statePath) {
-      recordSubagentRun(options.statePath, options.state, {
-        role: options.role,
-        durationMs: Date.now() - startedAt,
-        exitCode,
-        model: options.model,
-        toolCalls,
-        stopReason,
-      });
-    }
-
-    return result;
-  } finally {
-    if (options.signal) options.signal.removeEventListener("abort", onAbort);
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+      model: options.model,
+      toolCalls,
+    });
   }
+
+  return result;
 }
 
 export async function runFreshReviewViaSubagent(options: {
+  pi: ExtensionAPI;
+  ctx: ExtensionContext;
   cwd: string;
   reviewerInput: string;
   systemPrompt?: string;
@@ -234,12 +94,14 @@ export async function runFreshReviewViaSubagent(options: {
   state?: HarnessState;
 }): Promise<SubagentRunResult> {
   const systemPrompt = options.systemPrompt ?? loadAgentPrompt("reviewer");
-  return runSubagentOrchestration({
+  const task = buildSubagentReviewerTask(systemPrompt, options.reviewerInput);
+  return runHarnessSubagent({
+    pi: options.pi,
+    ctx: options.ctx,
     cwd: options.cwd,
-    orchestrationPrompt: buildSubagentOrchestrationPrompt(systemPrompt, options.reviewerInput),
-    tmpPrefix: "pi-harness-review-",
+    agent: "reviewer",
+    task,
     label: "Fresh review",
-    role: "reviewer",
     model: options.model,
     signal: options.signal,
     statePath: options.statePath,
@@ -248,6 +110,8 @@ export async function runFreshReviewViaSubagent(options: {
 }
 
 export async function runScoutViaSubagent(options: {
+  pi: ExtensionAPI;
+  ctx: ExtensionContext;
   cwd: string;
   scoutInput: string;
   model?: string;
@@ -255,12 +119,15 @@ export async function runScoutViaSubagent(options: {
   statePath?: string;
   state?: HarnessState;
 }): Promise<SubagentRunResult> {
-  return runSubagentOrchestration({
+  const scoutPrompt = loadAgentPrompt("scout");
+  const task = buildScoutSubagentTask(scoutPrompt, options.scoutInput);
+  return runHarnessSubagent({
+    pi: options.pi,
+    ctx: options.ctx,
     cwd: options.cwd,
-    orchestrationPrompt: buildScoutSubagentOrchestrationPrompt(options.scoutInput),
-    tmpPrefix: "pi-harness-scout-",
+    agent: "scout",
+    task,
     label: "Scout",
-    role: "scout",
     model: options.model,
     signal: options.signal,
     statePath: options.statePath,

@@ -29,7 +29,8 @@ Humans steer, agents execute. You provide the ticket + repo context; BFH gives t
 | `extensions/lean_bfh/design-review.ts` | Level-3 design_gate flow (options → choice → proposal → accept/decline). |
 | `extensions/lean_bfh/outcome-table.ts` | Maps subagent outcomes → next phase. |
 | `extensions/lean_bfh/close.ts` | Close gates + draft PR creation via `gh`. |
-| `extensions/lean_bfh/subagent.ts` | Spawns fresh-context scout/review subagents; parses `AGENT_RESULT`. |
+| `extensions/lean_bfh/subagent.ts` | Runs scout/review via pi-subagents (live TUI); parses `AGENT_RESULT`. |
+| `extensions/lean_bfh/pi-subagents-bridge.ts` | Slash-bridge to pi-subagents for streaming subagent UI. |
 | `extensions/lean_bfh/evidence-markers.ts` | Writes `tested.json` / `reviewed.json` markers; close-gate evidence. |
 | `extensions/lean_bfh/bfh-config.ts` | Loads repo-root `config.jsonc` (JSONC); Jira, workflow, models. |
 | `extensions/lean_bfh/jira.ts` | Fetches ticket details + custom fields during intake. |

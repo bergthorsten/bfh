@@ -341,6 +341,8 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       let scoutResult;
       try {
         scoutResult = await runScoutViaSubagentWithRetry({
+          pi,
+          ctx,
           cwd: ctx.cwd,
           scoutInput: buildScoutInput(state),
           model,
@@ -409,6 +411,8 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       let subagentResult;
       try {
         subagentResult = await runFreshReviewViaSubagentWithRetry({
+          pi,
+          ctx,
           cwd: ctx.cwd,
           reviewerInput,
           systemPrompt: getReviewSystemPrompt(ctx.cwd),
