@@ -16,7 +16,13 @@
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-ai": "*",
+    "pi-subagents": "*",
     "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "pi-subagents": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "ajv": "^8.17.1",

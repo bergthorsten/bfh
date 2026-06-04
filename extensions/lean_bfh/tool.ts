@@ -99,6 +99,8 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
         recordModelUse(statePath, model, "scout_auto");
         const scoutInput = buildScoutInput(state, params.scoutFocus);
         const scoutResult = await runScoutViaSubagentWithRetry({
+          pi,
+          ctx,
           cwd: ctx.cwd,
           scoutInput,
           model,
@@ -207,6 +209,8 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
         const model = resolveSubagentModel(ctx.cwd, "reviewer", sessionModel);
         recordModelUse(statePath, model, "verify_review");
         const subagentResult = await runFreshReviewViaSubagentWithRetry({
+          pi,
+          ctx,
           cwd: ctx.cwd,
           reviewerInput,
           systemPrompt: getReviewSystemPrompt(ctx.cwd),

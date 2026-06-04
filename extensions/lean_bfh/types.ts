@@ -227,7 +227,6 @@ export type TouchedFile = {
 
 export type SubagentRunResult = {
   text: string;
-  stopReason?: string;
   stderr: string;
   exitCode: number;
   usedSubagent: boolean;
@@ -238,24 +237,6 @@ export type HarnessSessionEntry = {
   type?: string;
   customType?: string;
   data?: { statePath?: string };
-};
-
-/** pi --mode json stream events (subset used by subagent runner). */
-export type PiJsonContentPart =
-  | { type: "text"; text: string }
-  | { type: "toolCall"; name?: string };
-
-export type PiJsonMessage = {
-  role?: string;
-  content?: string | PiJsonContentPart[];
-  stopReason?: string;
-  toolName?: string;
-};
-
-export type PiJsonEvent = {
-  type?: string;
-  message?: PiJsonMessage;
-  toolResults?: PiJsonMessage[];
 };
 
 export type HarnessStartArgs = {
