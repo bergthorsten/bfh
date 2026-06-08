@@ -581,18 +581,32 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
         });
 
         if (!result.ok) {
+          if (!result.dryRun) writeState(statePath, state);
           recordGateBlocked(statePath, state, "close_create", (result.reasons || []).join("; "));
+          const createdButBlocked = Boolean(result.prUrl);
           return {
             content: [{
               type: "text",
-              text: [
-                "Close create: BLOCKED",
-                "",
-                ...(result.reasons || []).map((r) => `- ${r}`),
-                "",
-                "Draft PR body if blockers are resolved:",
-                result.prBody,
-              ].join("\n"),
+              text: createdButBlocked
+                ? [
+                    stateToolText(statePath, state),
+                    "",
+                    "Close create: PR CREATED BUT BLOCKED",
+                    `PR: ${result.prUrl}`,
+                    result.prChecks ? `GitHub checks: ${result.prChecks.status} (${result.prChecks.summary})` : "",
+                    "",
+                    ...(result.reasons || []).map((r) => `- ${r}`),
+                  ]
+                    .filter(Boolean)
+                    .join("\n")
+                : [
+                    "Close create: BLOCKED",
+                    "",
+                    ...(result.reasons || []).map((r) => `- ${r}`),
+                    "",
+                    "Draft PR body if blockers are resolved:",
+                    result.prBody,
+                  ].join("\n"),
             }],
             details: {
               ok: false,
@@ -600,6 +614,8 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
               reasons: result.reasons || [],
               prTitle: result.prTitle,
               prBody: result.prBody,
+              prUrl: result.prUrl,
+              prChecks: result.prChecks,
             },
             isError: true,
           };
@@ -617,6 +633,7 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
               `Base: ${result.baseBranch}`,
               `Head: ${result.headBranch}`,
               `PR: ${result.prUrl || "(not created)"}`,
+              result.prChecks ? `GitHub checks: ${result.prChecks.status} (${result.prChecks.summary})` : "",
               "",
               "Draft PR body:",
               result.prBody,
@@ -632,6 +649,7 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
             headBranch: result.headBranch,
             prTitle: result.prTitle,
             prBody: result.prBody,
+            prChecks: result.prChecks,
           },
         };
       }

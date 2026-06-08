@@ -163,6 +163,10 @@ describe("executeCloseCreate", () => {
     fs.writeFileSync(
       ghPath,
       "#!/usr/bin/env bash\n" +
+        "if [[ \"$1 $2\" == \"pr checks\" ]]; then\n" +
+        "  echo '[{\"name\":\"ci\",\"state\":\"SUCCESS\",\"bucket\":\"pass\"}]'\n" +
+        "  exit 0\n" +
+        "fi\n" +
         "echo 'a pull request for branch already exists: https://github.com/acme/shop/pull/99' >&2\n" +
         "exit 1\n",
       "utf8",
@@ -170,7 +174,9 @@ describe("executeCloseCreate", () => {
     fs.chmodSync(ghPath, 0o755);
 
     const originalPath = process.env.PATH || "";
+    const originalChecksEnabled = process.env.BFH_PR_CHECKS_ENABLED;
     process.env.PATH = `${fakeBin}:${originalPath}`;
+    process.env.BFH_PR_CHECKS_ENABLED = "false";
     try {
       const result = executeCloseCreate(cwd, statePath, state, {
         pushBranch: false,
@@ -183,6 +189,8 @@ describe("executeCloseCreate", () => {
       expect(state.currentStep).toBe("pr_review");
     } finally {
       process.env.PATH = originalPath;
+      if (originalChecksEnabled === undefined) delete process.env.BFH_PR_CHECKS_ENABLED;
+      else process.env.BFH_PR_CHECKS_ENABLED = originalChecksEnabled;
     }
   });
 });

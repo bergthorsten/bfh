@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { agentResultParsedOk, parseAgentResult } from "./agent-result.ts";
 import { evaluateCloseReadiness } from "./close.ts";
+import { summarizePrChecks } from "./ci-checks.ts";
 import {
   readReviewedMarker,
   writeReviewedMarker,
@@ -402,6 +403,25 @@ function runM3SelfTests(cwd: string, lines: string[]): void {
   lines.push("✓ M3: retro_run appends LEARNINGS and stages structured amendment");
 }
 
+function runPrChecksSelfTests(lines: string[]): void {
+  const pending = summarizePrChecks([]);
+  assert(pending.status === "pending", "no checks should be pending while workflows appear");
+
+  const failed = summarizePrChecks([
+    { name: "lint", state: "SUCCESS", bucket: "pass" },
+    { name: "test", state: "FAILURE", bucket: "fail", link: "https://example.invalid/check" },
+  ]);
+  assert(failed.status === "failure" && failed.checksFailing === 1, "failing check should fail CI gate");
+
+  const success = summarizePrChecks([
+    { name: "lint", state: "SUCCESS", bucket: "pass" },
+    { name: "docs", state: "SKIPPED", bucket: "skipping" },
+  ]);
+  assert(success.status === "success", "passed/skipped checks should pass CI gate");
+
+  lines.push("✓ PR checks: close_create CI-gate classification");
+}
+
 function runPrReviewSelfTests(cwd: string, lines: string[]): void {
   const parsed = parseGitHubPrUrl("https://github.com/acme/shop/pull/42");
   assert(parsed?.owner === "acme" && parsed.number === 42, "parse GitHub PR URL");
@@ -514,6 +534,7 @@ export function runHarnessSelfTest(cwd: string): string {
   runH6SelfTests(lines);
   runM2SelfTests(cwd, lines);
   runM3SelfTests(cwd, lines);
+  runPrChecksSelfTests(lines);
   runPrReviewSelfTests(cwd, lines);
   runDocsSelfTests(cwd, lines);
 

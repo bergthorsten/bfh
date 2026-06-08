@@ -36,6 +36,7 @@ export type PrReviewMarker = {
   reviewDecision: PrReviewDecision;
   unresolvedThreads: number;
   reviewCommentCount: number;
+  checksPending: number;
   checksFailing: number;
   stateUpdatedAt: string;
   writtenBy: string;
@@ -187,6 +188,7 @@ export function writePrReviewMarker(statePath: string, state: HarnessState, snap
     reviewDecision: snapshot.reviewDecision,
     unresolvedThreads: snapshot.unresolvedThreads,
     reviewCommentCount: snapshot.reviewCommentCount,
+    checksPending: snapshot.checksPending,
     checksFailing: snapshot.checksFailing,
     stateUpdatedAt: state.updatedAt,
     writtenBy: "bfh_state:pr_sync",
@@ -216,8 +218,16 @@ export function syncPrReviewFromGitHub(cwd: string, prUrl: string): PrReviewSnap
   };
 
   const checks = view.statusCheckRollup ?? [];
-  const checksFailing = checks.filter((c) => c.conclusion === "FAILURE" || c.state === "FAILURE").length;
-  const checksPending = checks.filter((c) => c.state === "PENDING" || c.conclusion === "PENDING").length;
+  const checksFailing = checks.filter((c) => {
+    const conclusion = String(c.conclusion || "").toUpperCase();
+    const state = String(c.state || "").toUpperCase();
+    return ["FAILURE", "ERROR", "CANCELLED", "CANCELED", "TIMED_OUT", "ACTION_REQUIRED"].includes(conclusion) || ["FAILURE", "ERROR", "CANCELLED", "CANCELED", "TIMED_OUT", "ACTION_REQUIRED"].includes(state);
+  }).length;
+  const checksPending = checks.filter((c) => {
+    const conclusion = String(c.conclusion || "").toUpperCase();
+    const state = String(c.state || "").toUpperCase();
+    return ["PENDING", "QUEUED", "REQUESTED", "WAITING", "IN_PROGRESS", "EXPECTED"].includes(conclusion) || ["PENDING", "QUEUED", "REQUESTED", "WAITING", "IN_PROGRESS", "EXPECTED"].includes(state);
+  }).length;
 
   let reviewCommentCount = 0;
   const threads: PrReviewThread[] = [];
@@ -291,7 +301,9 @@ export function applyPrSnapshotToState(state: HarnessState, snapshot: PrReviewSn
   state.pr.reviewDecision = snapshot.reviewDecision;
   state.pr.unresolvedThreads = snapshot.unresolvedThreads;
   state.pr.lastSyncedAt = snapshot.syncedAt;
+  state.pr.checksPending = snapshot.checksPending;
   state.pr.checksFailing = snapshot.checksFailing;
+  state.pr.lastChecksSyncedAt = snapshot.syncedAt;
 }
 
 export function prReviewBlockedForDone(state: HarnessState): boolean {
@@ -303,13 +315,20 @@ export function prReviewBlockedForDone(state: HarnessState): boolean {
 export function doneBlockedReasons(state: HarnessState, marker: PrReviewMarker | null): string[] {
   const reasons: string[] = [];
   if (!state.pr.url) return reasons;
-  if (state.pr.allowDoneWithoutPrApproval) return reasons;
 
   const decision = marker?.reviewDecision ?? state.pr.reviewDecision;
-  if (decision !== "APPROVED") {
+  if (!state.pr.allowDoneWithoutPrApproval && decision !== "APPROVED") {
     reasons.push(
       `GitHub PR reviewDecision is ${decision ?? "unknown"} (run pr_sync after colleague approval, or patch pr.allowDoneWithoutPrApproval)`,
     );
+  }
+  const checksFailing = marker?.checksFailing ?? state.pr.checksFailing ?? 0;
+  const checksPending = marker?.checksPending ?? state.pr.checksPending ?? 0;
+  if (checksFailing > 0) {
+    reasons.push(`GitHub status checks are failing (${checksFailing}); fix CI and re-run pr_sync`);
+  }
+  if (checksPending > 0) {
+    reasons.push(`GitHub status checks are still pending (${checksPending}); wait and re-run pr_sync`);
   }
   if (marker && marker.stateUpdatedAt !== state.updatedAt) {
     reasons.push("pr-review.json is stale relative to state.updatedAt (re-run pr_sync)");

@@ -54,6 +54,17 @@ export type BfhJiraConfig = {
   constraintFields?: string[];
 };
 
+export type BfhPrChecksConfig = {
+  /** Wait for GitHub status checks after draft PR creation (default true). */
+  enabled?: boolean;
+  /** Delay before the first check after PR creation (default 120000ms). */
+  initialDelayMs?: number;
+  /** Delay between follow-up checks while checks are pending (default 30000ms). */
+  pollIntervalMs?: number;
+  /** Maximum number of check attempts after the initial delay (default 6). */
+  maxAttempts?: number;
+};
+
 export type BfhWorkflowConfig = {
   defaultDifficulty?: DifficultyLevel;
   baseBranch?: string;
@@ -61,6 +72,7 @@ export type BfhWorkflowConfig = {
   designReviewRevisionLimit?: number;
   externalPrRevisionLimit?: number;
   maxReviewTouchedFiles?: number;
+  prChecks?: BfhPrChecksConfig;
 };
 
 export type BfhModelsConfig = {
@@ -103,6 +115,7 @@ export type BfhResolvedConfig = {
     designReviewRevisionLimit: number;
     externalPrRevisionLimit: number;
     maxReviewTouchedFiles: number;
+    prChecks: Required<BfhPrChecksConfig>;
   };
   models: BfhModelsConfig;
   notifications: {
@@ -126,6 +139,12 @@ const CODE_DEFAULTS: BfhResolvedConfig = {
     designReviewRevisionLimit: 3,
     externalPrRevisionLimit: 2,
     maxReviewTouchedFiles: 20,
+    prChecks: {
+      enabled: true,
+      initialDelayMs: 120_000,
+      pollIntervalMs: 30_000,
+      maxAttempts: 6,
+    },
   },
   models: DEFAULT_BFH_MODELS,
   notifications: {
@@ -210,6 +229,12 @@ function envString(...keys: string[]): string | undefined {
   return undefined;
 }
 
+function positiveInt(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : Number(String(value ?? "").trim());
+  if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  return undefined;
+}
+
 function envFieldList(envKey: string, fileValue: unknown): string[] {
   const fromEnv = envString(envKey);
   if (fromEnv) {
@@ -267,6 +292,7 @@ function mergeNotifications(file: BfhNotificationsConfig | undefined): BfhResolv
 function mergeResolved(file: BfhConfigFile | undefined): BfhResolvedConfig {
   const jira = file?.jira ?? {};
   const workflow = file?.workflow ?? {};
+  const prChecks = workflow.prChecks ?? {};
 
   const authModeRaw = (envString("JIRA_AUTH_MODE") || jira.authMode || CODE_DEFAULTS.jira.authMode).toLowerCase();
   const authMode: JiraAuthMode = authModeRaw === "basic" ? "basic" : "bearer";
@@ -302,6 +328,24 @@ function mergeResolved(file: BfhConfigFile | undefined): BfhResolvedConfig {
         Number(envString("BFH_MAX_REVIEW_TOUCHED_FILES")) ||
         workflow.maxReviewTouchedFiles ||
         CODE_DEFAULTS.workflow.maxReviewTouchedFiles,
+      prChecks: {
+        enabled:
+          envBool("BFH_PR_CHECKS_ENABLED") ??
+          parseBool(prChecks.enabled) ??
+          CODE_DEFAULTS.workflow.prChecks.enabled,
+        initialDelayMs:
+          positiveInt(envString("BFH_PR_CHECKS_INITIAL_DELAY_MS")) ??
+          positiveInt(prChecks.initialDelayMs) ??
+          CODE_DEFAULTS.workflow.prChecks.initialDelayMs,
+        pollIntervalMs:
+          positiveInt(envString("BFH_PR_CHECKS_POLL_INTERVAL_MS")) ??
+          positiveInt(prChecks.pollIntervalMs) ??
+          CODE_DEFAULTS.workflow.prChecks.pollIntervalMs,
+        maxAttempts:
+          positiveInt(envString("BFH_PR_CHECKS_MAX_ATTEMPTS")) ??
+          positiveInt(prChecks.maxAttempts) ??
+          CODE_DEFAULTS.workflow.prChecks.maxAttempts,
+      },
     },
     models: mergeModels(file?.models),
     notifications: mergeNotifications(file?.notifications),

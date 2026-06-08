@@ -268,7 +268,9 @@
         },
         "unresolvedThreads": { "type": "integer", "minimum": 0 },
         "lastSyncedAt": { "type": ["string", "null"] },
+        "checksPending": { "type": "integer", "minimum": 0 },
         "checksFailing": { "type": "integer", "minimum": 0 },
+        "lastChecksSyncedAt": { "type": ["string", "null"] },
         "externalRevisionCount": { "type": "integer", "minimum": 0 },
         "externalRevisionLimit": { "type": "integer", "minimum": 0 },
         "allowDoneWithoutPrApproval": { "type": "boolean" }

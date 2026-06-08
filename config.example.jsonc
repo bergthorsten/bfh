@@ -17,7 +17,17 @@
     "verifyRevisionLimit": 2,
     "designReviewRevisionLimit": 3,
     "externalPrRevisionLimit": 2,
-    "maxReviewTouchedFiles": 20
+    "maxReviewTouchedFiles": 20,
+    "prChecks": {
+      // After a draft PR is created, wait 2 minutes, then poll GitHub checks every 30s.
+      // BFH stops after 6 attempts (~4.5–5 minutes total) if checks are still pending.
+      // Env overrides: BFH_PR_CHECKS_ENABLED, BFH_PR_CHECKS_INITIAL_DELAY_MS,
+      // BFH_PR_CHECKS_POLL_INTERVAL_MS, BFH_PR_CHECKS_MAX_ATTEMPTS.
+      "enabled": true,
+      "initialDelayMs": 120000,
+      "pollIntervalMs": 30000,
+      "maxAttempts": 6
+    }
   },
 
   // Ping (sound + OS notification) when the harness waits on you — only on pending human/design gates.

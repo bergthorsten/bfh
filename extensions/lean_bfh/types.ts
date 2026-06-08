@@ -173,7 +173,9 @@ export type HarnessState = {
     reviewDecision?: PrReviewDecision | null;
     unresolvedThreads?: number;
     lastSyncedAt?: string | null;
+    checksPending?: number;
     checksFailing?: number;
+    lastChecksSyncedAt?: string | null;
     externalRevisionCount?: number;
     externalRevisionLimit?: number;
     /** Human override: advance to done without GitHub PR approval. */

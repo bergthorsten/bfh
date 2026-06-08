@@ -230,6 +230,8 @@ BFH runs a fresh review pass. Outcomes are:
 
 BFH checks the state, test markers, review markers, human pre-close approval, and working tree. If everything is ready, it can create a draft PR with `gh`.
 
+After PR creation BFH also waits for GitHub status checks: by default it waits 2 minutes, checks once, then retries every 30 seconds up to 6 total attempts. If checks fail, BFH records the failing workflows and moves back to implementation. If checks are still pending after the retry budget, BFH leaves the PR in review and asks you to wait and run `/bfh-pr-sync` later. Configure this under `workflow.prChecks` in `config.jsonc` or via `BFH_PR_CHECKS_*` env vars.
+
 You can set the base branch explicitly:
 
 ```bash
@@ -238,7 +240,7 @@ export BFH_BASE_BRANCH="main"
 
 ### 7. PR Review And Retro
 
-After a draft PR exists, BFH can sync GitHub review status and only move to `done` after approval unless explicitly overridden. The retro step now auto-derives compact insights (for example revision-loop usage, missing test evidence, and PR review bounce-back), appends them to `LEARNINGS.md`, and stages a structured amendment proposal when requested.
+After a draft PR exists, BFH can sync GitHub review status and status-check results, and only move to `done` after approval plus non-failing/non-pending checks unless explicitly overridden. The retro step now auto-derives compact insights (for example revision-loop usage, missing test evidence, and PR review bounce-back), appends them to `LEARNINGS.md`, and stages a structured amendment proposal when requested.
 
 ## Files BFH Writes
 

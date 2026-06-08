@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { resolveHarnessBaseBranch } from "./git-prep.ts";
+import { loadBfhConfig } from "./bfh-config.ts";
 import { readBriefExcerpt } from "./brief.ts";
+import { formatFailingChecks, waitForPrChecks, type PrChecksWaitResult } from "./ci-checks.ts";
 import { validateEvidenceMarkersForClose } from "./evidence-markers.ts";
 import { classifyCloseOutcome, resolveOutcome } from "./outcome-table.ts";
 import { closeBlockedByCriticalFindings, formatReviewCountsLine, getReviewCounts } from "./review.ts";
@@ -157,6 +159,7 @@ export function executeCloseCreate(
   prBody: string;
   reasons?: string[];
   dryRun?: boolean;
+  prChecks?: PrChecksWaitResult;
 } {
   const readiness = evaluateCloseReadiness(cwd, statePath, state);
   const prTitle = options.prTitle?.trim() || createDefaultPrTitle(state);
@@ -252,6 +255,83 @@ export function executeCloseCreate(
     createdAt: new Date().toISOString(),
   });
 
+  const prChecks = waitForPrChecks(cwd, prUrl, loadBfhConfig(cwd).workflow.prChecks);
+  state.pr.checksPending = prChecks.checksPending;
+  state.pr.checksFailing = prChecks.checksFailing;
+  state.pr.lastChecksSyncedAt = prChecks.completedAt;
+
+  if (prChecks.status === "failure") {
+    const failing = formatFailingChecks(prChecks.checks);
+    const summary = [
+      `GitHub checks failed after PR creation: ${prChecks.summary}.`,
+      ...failing,
+      "Fix the workflow errors, commit the repair, then re-run verification/close.",
+    ].join("\n");
+    state.evidence.push({
+      type: "pr",
+      passed: false,
+      command: "gh pr checks --json name,state,bucket,workflow,link,description",
+      summary,
+      createdAt: new Date().toISOString(),
+    });
+    if (state.currentStep === "close") {
+      applyAdvance(state, "implement", statePath);
+    }
+    recordCloseAttempt(statePath, state, false, [summary]);
+    return {
+      ok: false,
+      created,
+      prUrl,
+      baseBranch,
+      headBranch,
+      prTitle,
+      prBody,
+      reasons: [summary],
+      prChecks,
+    };
+  }
+
+  if (prChecks.status === "pending") {
+    const summary = [
+      `GitHub checks did not finish after ${prChecks.attempts} attempt(s): ${prChecks.summary}.`,
+      "The draft PR was created, but BFH is stopping before completion because CI is still pending.",
+      "Wait for GitHub Actions to finish, then run /bfh-pr-sync or bfh_state action pr_sync to continue.",
+    ].join("\n");
+    state.evidence.push({
+      type: "pr",
+      passed: false,
+      command: "gh pr checks --json name,state,bucket,workflow,link,description",
+      summary,
+      createdAt: new Date().toISOString(),
+    });
+    if (autoAdvanceRetro !== false && state.currentStep === "close") {
+      applyAdvance(state, "pr_review", statePath);
+    }
+    recordCloseAttempt(statePath, state, false, [summary]);
+    return {
+      ok: false,
+      created,
+      prUrl,
+      baseBranch,
+      headBranch,
+      prTitle,
+      prBody,
+      reasons: [summary],
+      prChecks,
+    };
+  }
+
+  state.evidence.push({
+    type: "pr",
+    passed: true,
+    command: prChecks.status === "disabled" ? undefined : "gh pr checks --json name,state,bucket,workflow,link,description",
+    summary:
+      prChecks.status === "disabled"
+        ? prChecks.summary
+        : `GitHub checks passed after PR creation: ${prChecks.summary}.`,
+    createdAt: new Date().toISOString(),
+  });
+
   if (autoAdvanceRetro !== false && state.currentStep === "close") {
     applyAdvance(state, options.skipPrReview ? "retro" : "pr_review", statePath);
   }
@@ -265,5 +345,6 @@ export function executeCloseCreate(
     headBranch,
     prTitle,
     prBody,
+    prChecks,
   };
 }

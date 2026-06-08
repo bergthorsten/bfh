@@ -14,7 +14,7 @@ export function stateToolText(statePath: string, state: HarnessState): string {
     `Design: ${designReviewStatusLabel(state)}`,
     `Human: pre-implement=${state.human.preImplement.status}${state.human.preImplement.required ? " (required)" : ""}, pre-close=${state.human.preClose.status}`,
     `Evidence: ${state.evidence.length}`,
-    `PR: ${state.pr.url || "(none)"}${state.pr.reviewDecision ? ` [${state.pr.reviewDecision}]` : ""}`,
+    `PR: ${state.pr.url || "(none)"}${state.pr.reviewDecision ? ` [${state.pr.reviewDecision}]` : ""}${typeof state.pr.checksFailing === "number" || typeof state.pr.checksPending === "number" ? ` checks=${state.pr.checksFailing ?? 0} failing/${state.pr.checksPending ?? 0} pending` : ""}`,
     `Verdict: ${state.finalVerdict}`,
   ].join("\n");
 }

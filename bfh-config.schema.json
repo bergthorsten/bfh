@@ -31,7 +31,17 @@
         "verifyRevisionLimit": { "type": "integer", "minimum": 0 },
         "designReviewRevisionLimit": { "type": "integer", "minimum": 0 },
         "externalPrRevisionLimit": { "type": "integer", "minimum": 0 },
-        "maxReviewTouchedFiles": { "type": "integer", "minimum": 1 }
+        "maxReviewTouchedFiles": { "type": "integer", "minimum": 1 },
+        "prChecks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "initialDelayMs": { "type": "integer", "minimum": 1 },
+            "pollIntervalMs": { "type": "integer", "minimum": 1 },
+            "maxAttempts": { "type": "integer", "minimum": 1 }
+          }
+        }
       }
     },
     "models": {
