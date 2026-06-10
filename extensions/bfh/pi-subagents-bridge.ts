@@ -23,6 +23,7 @@ export type PiSubagentParams = {
   /** Short UI label (3–5 words). */
   description?: string;
   model?: string;
+  thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 };
 
 export type PiSubagentLifecycleEvent = {
@@ -216,13 +217,19 @@ export async function spawnSubagentViaRpc(
   pi: ExtensionAPI,
   type: string,
   prompt: string,
-  options: { description: string; model?: string; isBackground?: boolean },
+  options: {
+    description: string;
+    model?: string;
+    thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+    isBackground?: boolean;
+  },
 ): Promise<string> {
   const spawnOptions: Record<string, unknown> = {
     description: options.description,
     isBackground: options.isBackground ?? true,
   };
   if (options.model) spawnOptions.model = options.model;
+  if (options.thinking) spawnOptions.thinking = options.thinking;
 
   const data = await rpcCall<{ id: string }>(pi, RPC_SPAWN, {
     type,
@@ -260,6 +267,7 @@ export async function runSubagentViaPiSubagents(
     const agentId = await spawnSubagentViaRpc(pi, params.agent, params.task, {
       description,
       model: params.model,
+      thinking: params.thinking,
       isBackground: true,
     });
 

@@ -8,7 +8,9 @@ import {
   createState,
   mergeStatePatch,
   readState,
+  removeHarnessRunArtifacts,
   resolveStatePathFromArg,
+  statePathFor,
   writeState,
 } from "../state.ts";
 
@@ -143,6 +145,33 @@ describe("state", () => {
     const loaded = readState(statePath);
     expect(loaded.ticketKey).toBe("PC-13");
     expect(loaded.summary).toBe("round trip");
+  });
+
+  test("removeHarnessRunArtifacts deletes state, brief, and ticket dir", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-state-remove-"));
+    const statePath = statePathFor(cwd, "PC-14");
+    const state = createState({
+      key: "PC-14",
+      title: "remove me",
+      type: "task",
+      status: "todo",
+      description: "",
+      linkedTickets: [],
+      labels: [],
+    });
+    writeState(statePath, state);
+
+    const briefPath = path.join(cwd, ".pi", "bfh", "PC-14.brief.md");
+    const markerDir = path.join(cwd, ".pi", "bfh", "PC-14");
+    fs.mkdirSync(markerDir, { recursive: true });
+    fs.writeFileSync(briefPath, "# brief\n", "utf8");
+    fs.writeFileSync(path.join(markerDir, "tested.json"), "{}\n", "utf8");
+
+    removeHarnessRunArtifacts(statePath);
+
+    expect(fs.existsSync(statePath)).toBe(false);
+    expect(fs.existsSync(briefPath)).toBe(false);
+    expect(fs.existsSync(markerDir)).toBe(false);
   });
 
   test("resolveStatePathFromArg accepts key or path", () => {

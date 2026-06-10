@@ -44,20 +44,15 @@ echo "Installing BFH ${latest_tag}..."
 pi install "git:github.com/${repo}@${latest_tag}"
 
 seed_bfh_config() {
-  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    return 0
-  fi
+  local agent_dir="${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}"
+  local config_dir="${agent_dir}/bfh"
+  local config="${config_dir}/config.jsonc"
+  local example
+  example="$(mktemp)"
 
-  local config="config.jsonc"
-  local example="config.example.jsonc"
+  curl -fsSL "https://raw.githubusercontent.com/${repo}/${latest_tag}/config.example.jsonc" -o "$example"
 
-  if [ ! -f "$example" ]; then
-    if [ -f "config.example.jsonc" ]; then
-      cp "config.example.jsonc" "$example"
-    else
-      curl -fsSL "https://raw.githubusercontent.com/${repo}/${latest_tag}/config.example.jsonc" -o "$example"
-    fi
-  fi
+  mkdir -p "$config_dir"
 
   if [ ! -f "$config" ]; then
     cp "$example" "$config"
@@ -66,14 +61,7 @@ seed_bfh_config() {
     echo "BFH config already exists: ${config}"
   fi
 
-  if [ -f .gitignore ] && ! grep -qF 'config.jsonc' .gitignore; then
-    {
-      echo ""
-      echo "# BFH local harness settings (may contain secrets)"
-      echo "config.jsonc"
-    } >> .gitignore
-    echo "Added config.jsonc to .gitignore"
-  fi
+  rm -f "$example"
 }
 
 seed_bfh_config

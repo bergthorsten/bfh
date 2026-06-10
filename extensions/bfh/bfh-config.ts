@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseJsonc } from "./jsonc.ts";
@@ -7,6 +8,7 @@ import { DEFAULT_JIRA_BASE_URL } from "./types.ts";
 
 export const BFH_CONFIG_FILENAME = "config.jsonc";
 export const BFH_CONFIG_EXAMPLE_FILENAME = "config.example.jsonc";
+export const BFH_GLOBAL_CONFIG_SUBDIR = "bfh";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -14,6 +16,12 @@ const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 export const DEFAULT_BFH_THINKING = "medium";
 
 const PI_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
+
+export type BfhThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ResolvedSubagentInvocation = {
+  model?: string;
+  thinking?: BfhThinkingLevel;
+};
 
 /** Append `:thinking` when the model ref has no Pi thinking suffix (see pi --model docs). */
 export function ensureDefaultThinking(
@@ -179,12 +187,37 @@ export function clearBfhConfigCache(): void {
   configCache.clear();
 }
 
-export function bfhConfigPath(cwd: string): string {
+/** Pi global agent dir (`~/.pi/agent`, or `PI_CODING_AGENT_DIR`). */
+export function resolvePiAgentDir(): string {
+  const fromEnv = process.env.PI_CODING_AGENT_DIR?.trim();
+  if (fromEnv) return path.resolve(fromEnv);
+  return path.join(os.homedir(), ".pi", "agent");
+}
+
+export function bfhGlobalConfigDir(): string {
+  return path.join(resolvePiAgentDir(), BFH_GLOBAL_CONFIG_SUBDIR);
+}
+
+/** Primary BFH settings path under the Pi agent dir. */
+export function bfhConfigPath(_cwd?: string): string {
+  return path.join(bfhGlobalConfigDir(), BFH_CONFIG_FILENAME);
+}
+
+/** Legacy repo-root config (read-only fallback for older installs). */
+export function legacyBfhConfigPath(cwd: string): string {
   return path.join(path.resolve(cwd), BFH_CONFIG_FILENAME);
 }
 
 export function bfhConfigExamplePath(cwd: string): string {
   return path.join(path.resolve(cwd), BFH_CONFIG_EXAMPLE_FILENAME);
+}
+
+function resolveConfigFilePath(cwd: string): string {
+  const globalPath = bfhConfigPath();
+  if (fs.existsSync(globalPath)) return globalPath;
+  const legacyPath = legacyBfhConfigPath(cwd);
+  if (fs.existsSync(legacyPath)) return legacyPath;
+  return globalPath;
 }
 
 export function packageConfigExamplePath(): string {
@@ -394,11 +427,11 @@ function mergeResolved(file: BfhConfigFile | undefined): BfhResolvedConfig {
 }
 
 export function loadBfhConfig(cwd: string): BfhResolvedConfig {
-  const key = path.resolve(cwd);
+  const key = resolveConfigFilePath(cwd);
   const cached = configCache.get(key);
   if (cached) return cached;
 
-  const file = readConfigFileRaw(bfhConfigPath(key));
+  const file = readConfigFileRaw(key);
   const resolved = mergeResolved(file);
   configCache.set(key, resolved);
   return resolved;
@@ -409,20 +442,17 @@ export type EnsureBfhConfigResult = {
   created: boolean;
 };
 
-/** Create repo-root `config.jsonc` from example when missing. */
-export function ensureBfhConfigFile(cwd: string): EnsureBfhConfigResult {
-  const configPath = bfhConfigPath(cwd);
+/** Create `~/.pi/agent/bfh/config.jsonc` from example when missing. */
+export function ensureBfhConfigFile(_cwd: string): EnsureBfhConfigResult {
+  const configPath = bfhConfigPath();
   if (fs.existsSync(configPath)) {
     return { configPath, created: false };
   }
 
-  const repoExample = bfhConfigExamplePath(cwd);
   const packageExample = packageConfigExamplePath();
-  const source = fs.existsSync(repoExample)
-    ? repoExample
-    : fs.existsSync(packageExample)
-      ? packageExample
-      : undefined;
+  const source = fs.existsSync(packageExample) ? packageExample : undefined;
+
+  fs.mkdirSync(bfhGlobalConfigDir(), { recursive: true });
 
   if (!source) {
     fs.writeFileSync(configPath, `${JSON.stringify(CODE_DEFAULTS, null, 2)}\n`, "utf8");
@@ -435,7 +465,80 @@ export function ensureBfhConfigFile(cwd: string): EnsureBfhConfigResult {
 }
 
 export function resolveJiraConfigPath(cwd: string): string {
-  return bfhConfigPath(cwd);
+  return resolveConfigFilePath(cwd);
+}
+
+export function hasJiraToken(cwd: string): boolean {
+  return Boolean(loadBfhConfig(cwd).jira.token?.trim());
+}
+
+export function jiraTokenSetupHint(cwd: string): string {
+  const baseUrl = loadBfhConfig(cwd).jira.baseUrl.replace(/\/+$/, "");
+  return `Create a Personal Access Token in Jira: ${baseUrl}/secure/ViewProfile.jspa → Personal Access Tokens`;
+}
+
+/** Persist Jira token to the global config file (always `~/.pi/agent/bfh/config.jsonc`). */
+export function saveJiraToken(cwd: string, token: string): string {
+  const trimmed = token.trim();
+  if (!trimmed) throw new Error("Jira token cannot be empty.");
+
+  ensureBfhConfigFile(cwd);
+  const configPath = bfhConfigPath();
+  let raw = fs.readFileSync(configPath, "utf8");
+
+  const commentedTokenLine = /^\s*\/\/\s*"token"\s*:\s*"[^"]*".*$/m;
+  const tokenLine = /^\s*"token"\s*:\s*"[^"]*".*$/m;
+  if (commentedTokenLine.test(raw)) {
+    raw = raw.replace(commentedTokenLine, `    "token": ${JSON.stringify(trimmed)},`);
+  } else if (tokenLine.test(raw)) {
+    raw = raw.replace(tokenLine, `    "token": ${JSON.stringify(trimmed)},`);
+  } else {
+    const file = readConfigFileRaw(configPath) ?? {};
+    const updated: BfhConfigFile = {
+      ...file,
+      jira: { ...file.jira, token: trimmed },
+    };
+    raw = `${JSON.stringify(updated, null, 2)}\n`;
+  }
+
+  fs.writeFileSync(configPath, raw, "utf8");
+  clearBfhConfigCache();
+  return configPath;
+}
+
+function splitModelAndThinking(raw: string | undefined): ResolvedSubagentInvocation {
+  const trimmed = raw?.trim();
+  if (!trimmed) return {};
+
+  const lastColon = trimmed.lastIndexOf(":");
+  if (lastColon === -1) return { model: trimmed };
+
+  const suffix = trimmed.slice(lastColon + 1).toLowerCase();
+  if (PI_THINKING_LEVELS.has(suffix)) {
+    return {
+      model: trimmed.slice(0, lastColon),
+      thinking: suffix as BfhThinkingLevel,
+    };
+  }
+
+  return { model: trimmed };
+}
+
+export function resolveSubagentInvocation(
+  cwd: string,
+  role: keyof Pick<BfhModelsConfig, "scout" | "reviewer" | "closer" | "retro">,
+  sessionModel?: string,
+): ResolvedSubagentInvocation {
+  const fromConfig = loadBfhConfig(cwd).models[role]?.trim();
+  if (fromConfig) {
+    const resolved = splitModelAndThinking(fromConfig);
+    return {
+      model: resolved.model,
+      thinking: resolved.thinking ?? DEFAULT_BFH_THINKING,
+    };
+  }
+
+  return splitModelAndThinking(sessionModel?.trim());
 }
 
 export function resolveSubagentModel(
@@ -443,8 +546,7 @@ export function resolveSubagentModel(
   role: keyof Pick<BfhModelsConfig, "scout" | "reviewer" | "closer" | "retro">,
   sessionModel?: string,
 ): string | undefined {
-  const fromConfig = ensureDefaultThinking(loadBfhConfig(cwd).models[role]?.trim());
-  return fromConfig || sessionModel?.trim() || undefined;
+  return resolveSubagentInvocation(cwd, role, sessionModel).model;
 }
 
 export function resolveImplementModelHint(cwd: string, level: DifficultyLevel): string | undefined {

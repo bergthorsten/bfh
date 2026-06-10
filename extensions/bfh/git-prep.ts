@@ -247,14 +247,22 @@ export async function prepareGitForResume(
 ): Promise<boolean> {
   assertGitRepository(cwd);
 
-  if (!(await confirmCleanWorkingTree(cwd, ctx, `/bfh-resume ${git.branch}`))) {
-    return false;
-  }
-
   const current = getCurrentBranch(cwd);
   if (current === git.branch) {
-    ctx.ui.notify(`Already on branch '${git.branch}'.`, "info");
+    const status = getWorkingTreeStatus(cwd);
+    if (status) {
+      ctx.ui.notify(
+        `Resuming on '${git.branch}' with existing uncommitted changes (continuing current BFH work).`,
+        "info",
+      );
+    } else {
+      ctx.ui.notify(`Already on branch '${git.branch}'.`, "info");
+    }
     return true;
+  }
+
+  if (!(await confirmCleanWorkingTree(cwd, ctx, `/bfh-resume ${git.branch}`))) {
+    return false;
   }
 
   checkoutFeatureBranch(cwd, git.branch);

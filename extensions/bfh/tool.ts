@@ -4,7 +4,7 @@ import { agentResultParsedOk, parseAgentResult } from "./agent-result.ts";
 import { appendBriefProgress } from "./brief.ts";
 import { executeCloseCreate } from "./close.ts";
 import { stateToolText } from "./display.ts";
-import { loadBfhConfig, resolveSubagentModel } from "./bfh-config.ts";
+import { loadBfhConfig, resolveSubagentInvocation } from "./bfh-config.ts";
 import { buildTouchedFileContext, discoverTouchedFiles } from "./git-diff.ts";
 import { buildScoutInput, normalizeReviewFromText, normalizeScoutFromText } from "./normalize.ts";
 import { getReviewSystemPrompt } from "./prompt-loader.ts";
@@ -95,8 +95,10 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
         }
 
         const sessionModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-        const model = resolveSubagentModel(ctx.cwd, "scout", sessionModel);
-        recordModelUse(statePath, model, "scout_auto");
+        const invocation = resolveSubagentInvocation(ctx.cwd, "scout", sessionModel);
+        const model = invocation.model;
+        const modelLabel = model ? (invocation.thinking ? `${model}:${invocation.thinking}` : model) : undefined;
+        recordModelUse(statePath, modelLabel, "scout_auto");
         const scoutInput = buildScoutInput(state, params.scoutFocus);
         const scoutResult = await runScoutViaSubagentWithRetry({
           pi,
@@ -104,6 +106,7 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
           cwd: ctx.cwd,
           scoutInput,
           model,
+          thinking: invocation.thinking,
           signal: _signal,
           statePath,
           state,
@@ -206,8 +209,10 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
           .join("\n");
 
         const sessionModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-        const model = resolveSubagentModel(ctx.cwd, "reviewer", sessionModel);
-        recordModelUse(statePath, model, "verify_review");
+        const invocation = resolveSubagentInvocation(ctx.cwd, "reviewer", sessionModel);
+        const model = invocation.model;
+        const modelLabel = model ? (invocation.thinking ? `${model}:${invocation.thinking}` : model) : undefined;
+        recordModelUse(statePath, modelLabel, "verify_review");
         const subagentResult = await runFreshReviewViaSubagentWithRetry({
           pi,
           ctx,
@@ -215,6 +220,7 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
           reviewerInput,
           systemPrompt: getReviewSystemPrompt(ctx.cwd),
           model,
+          thinking: invocation.thinking,
           signal: _signal,
           statePath,
           state,

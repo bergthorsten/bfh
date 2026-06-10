@@ -1,5 +1,5 @@
 {
-  // Copy to config.jsonc in this repo root (gitignored). Install or /bfh seeds on first run.
+  // Lives at ~/.pi/agent/bfh/config.jsonc (or $PI_CODING_AGENT_DIR/bfh). Install or /bfh seeds on first run.
   // Env vars override file values (good for CI secrets: JIRA_TOKEN, etc.).
 
   "jira": {

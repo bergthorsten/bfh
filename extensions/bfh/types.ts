@@ -245,6 +245,7 @@ export type HarnessStartArgs = {
   issueKey: string;
   noJira: boolean;
   autoGo: boolean;
+  fresh: boolean;
   difficulty: DifficultyLevel;
 };
 

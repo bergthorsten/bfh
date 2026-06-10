@@ -30,13 +30,18 @@ function buildReviewerPrompt(reviewerInput: string, cwd?: string): string {
 function buildSubagentParams(
   agent: "scout" | "reviewer",
   task: string,
-  options: { model?: string; description?: string },
+  options: {
+    model?: string;
+    thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+    description?: string;
+  },
 ): PiSubagentParams {
   return {
     agent,
     task,
     ...(options.description ? { description: options.description } : {}),
     ...(options.model ? { model: options.model } : {}),
+    ...(options.thinking ? { thinking: options.thinking } : {}),
   };
 }
 
@@ -49,6 +54,7 @@ async function runHarnessSubagent(options: {
   label: string;
   description?: string;
   model?: string;
+  thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   signal?: AbortSignal;
   statePath?: string;
   state?: HarnessState;
@@ -62,6 +68,7 @@ async function runHarnessSubagent(options: {
   const startedAt = Date.now();
   const params = buildSubagentParams(options.agent, options.task, {
     model: options.model,
+    thinking: options.thinking,
     description: options.description,
   });
 
@@ -99,6 +106,7 @@ export async function runFreshReviewViaSubagent(options: {
   reviewerInput: string;
   systemPrompt?: string;
   model?: string;
+  thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   signal?: AbortSignal;
   statePath?: string;
   state?: HarnessState;
@@ -116,6 +124,7 @@ export async function runFreshReviewViaSubagent(options: {
     label: "Fresh review",
     description: "Fresh code review",
     model: options.model,
+    thinking: options.thinking,
     signal: options.signal,
     statePath: options.statePath,
     state: options.state,
@@ -128,6 +137,7 @@ export async function runScoutViaSubagent(options: {
   cwd: string;
   scoutInput: string;
   model?: string;
+  thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   signal?: AbortSignal;
   statePath?: string;
   state?: HarnessState;
@@ -142,6 +152,7 @@ export async function runScoutViaSubagent(options: {
     label: "Scout",
     description: "Scout reconnaissance",
     model: options.model,
+    thinking: options.thinking,
     signal: options.signal,
     statePath: options.statePath,
     state: options.state,

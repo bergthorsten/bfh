@@ -2,7 +2,7 @@ import { loadBfhConfig } from "./bfh-config.ts";
 import { DEFAULT_DIFFICULTY, parseDifficultyLevel } from "./difficulty.ts";
 import type { DifficultyLevel, HarnessStartArgs } from "./types.ts";
 
-const START_FLAGS = new Set(["--no-jira", "-n", "--go", "-g", "--level", "-l"]);
+const START_FLAGS = new Set(["--no-jira", "-n", "--go", "-g", "--fresh", "--level", "-l"]);
 
 export function normalizeIssueKey(raw: string): string {
   return raw.trim().toUpperCase();
@@ -28,6 +28,7 @@ export function parseHarnessStartArgs(raw: string, cwd = process.cwd()): Harness
   const tokens = raw.split(/\s+/).map((t) => t.trim()).filter(Boolean);
   const noJira = tokens.includes("--no-jira") || tokens.includes("-n");
   const autoGo = tokens.includes("--go") || tokens.includes("-g");
+  const fresh = tokens.includes("--fresh");
   const defaultDifficulty = loadBfhConfig(cwd).workflow.defaultDifficulty ?? DEFAULT_DIFFICULTY;
   const difficulty = parseLevelFromTokens(tokens, defaultDifficulty);
 
@@ -46,6 +47,7 @@ export function parseHarnessStartArgs(raw: string, cwd = process.cwd()): Harness
     issueKey: normalizeIssueKey(issueTokens[0] || ""),
     noJira,
     autoGo,
+    fresh,
     difficulty,
   };
 }

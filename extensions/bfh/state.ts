@@ -34,6 +34,7 @@ import { ensureDesignReviewShape } from "./design-review.ts";
 import { recordHarnessTransition } from "./metrics.ts";
 import { doneBlockedReasons, readPrReviewMarker } from "./pr-sync.ts";
 import { ensureReviewShape } from "./review.ts";
+import { ticketKeyFromStatePath, ticketMarkerDir } from "./evidence-markers.ts";
 
 function extractAcceptanceCriteria(description: string): string[] {
   const lines = description.split(/\r?\n|(?=\s*[-*]\s+)/).map((line) => line.trim()).filter(Boolean);
@@ -234,6 +235,18 @@ export function readState(filePath: string): HarnessState {
 
 export function statePathFor(cwd: string, issueKey: string): string {
   return path.join(cwd, STATE_DIR, `${issueKey}.state.json`);
+}
+
+/** Remove on-disk harness artifacts for one ticket run (state, brief, markers/metrics). */
+export function removeHarnessRunArtifacts(statePath: string): void {
+  const ticketKey = ticketKeyFromStatePath(statePath);
+  const dir = path.dirname(statePath);
+  const briefPath = path.join(dir, `${ticketKey}.brief.md`);
+  const markerDir = ticketMarkerDir(statePath);
+
+  if (fs.existsSync(statePath)) fs.unlinkSync(statePath);
+  if (fs.existsSync(briefPath)) fs.unlinkSync(briefPath);
+  if (fs.existsSync(markerDir)) fs.rmSync(markerDir, { recursive: true, force: true });
 }
 
 export function stateDirFor(cwd: string): string {

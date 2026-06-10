@@ -11,20 +11,28 @@ describe("args", () => {
       issueKey: "PC-120",
       noJira: true,
       autoGo: true,
+      fresh: false,
       difficulty: 2,
     });
     expect(parseHarnessStartArgs("-n -g BF-1")).toEqual({
       issueKey: "BF-1",
       noJira: true,
       autoGo: true,
+      fresh: false,
       difficulty: 2,
     });
     expect(parseHarnessStartArgs("")).toEqual({
       issueKey: "",
       noJira: false,
       autoGo: false,
+      fresh: false,
       difficulty: 2,
     });
+  });
+
+  test("parses --fresh flag", () => {
+    expect(parseHarnessStartArgs("pc-120 --fresh").fresh).toBe(true);
+    expect(parseHarnessStartArgs("pc-120 --fresh --go").fresh).toBe(true);
   });
 
   test("parses --level flag", () => {

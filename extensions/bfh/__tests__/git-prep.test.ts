@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 import {
   deriveBranchName,
   MAX_BRANCH_NAME_LENGTH,
+  prepareGitForResume,
   slugifyBranch,
 } from "../git-prep.ts";
 import { applyAdoptEntryMode, createState, resolveAdoptInitialStep } from "../state.ts";
@@ -47,6 +52,36 @@ describe("createState git defaults", () => {
     expect(state.git.branch).toBe("PC-99-add-payment-retry");
     expect(state.git.baseBranch).toBe("master");
     expect(state.git.entryMode).toBe("greenfield");
+  });
+});
+
+describe("prepareGitForResume", () => {
+  test("allows dirty working tree when already on the BFH branch", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-git-prep-"));
+    execFileSync("git", ["init"], { cwd });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd });
+    fs.writeFileSync(path.join(cwd, "README.md"), "# test\n", "utf8");
+    execFileSync("git", ["add", "README.md"], { cwd });
+    execFileSync("git", ["commit", "-m", "init"], { cwd });
+
+    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, encoding: "utf8" }).trim();
+    fs.writeFileSync(path.join(cwd, "README.md"), "# test\nmodified\n", "utf8");
+
+    const notifications: Array<{ message: string; level: string }> = [];
+    const ok = await prepareGitForResume(
+      cwd,
+      {
+        hasUI: false,
+        ui: {
+          notify: (message: string, level: string) => notifications.push({ message, level }),
+        },
+      } as any,
+      { branch, baseBranch: branch, entryMode: "greenfield" },
+    );
+
+    expect(ok).toBe(true);
+    expect(notifications.some((entry) => entry.message.includes("with existing uncommitted changes"))).toBe(true);
   });
 });
 

@@ -9,7 +9,15 @@ import { fetchIssue } from "./jira.ts";
 import { prepareGitForResume, prepareGitForStart } from "./git-prep.ts";
 import { appendBriefProgress, createBrief } from "./brief.ts";
 import { deliverHarnessPrompt } from "./kickoff.ts";
-import { ensureBfhConfigFile, loadBfhConfig, resolveSubagentModel } from "./bfh-config.ts";
+import {
+  bfhConfigPath,
+  ensureBfhConfigFile,
+  hasJiraToken,
+  jiraTokenSetupHint,
+  loadBfhConfig,
+  resolveSubagentInvocation,
+  saveJiraToken,
+} from "./bfh-config.ts";
 import { ensureHarnessReadme, ensurePrinciplesFile } from "./harness-docs.ts";
 import { buildScoutInput, normalizeReviewFromText, normalizeScoutFromText } from "./normalize.ts";
 import { agentResultParsedOk, parseAgentResult } from "./agent-result.ts";
@@ -34,6 +42,7 @@ import {
   createState,
   listStateFiles,
   readState,
+  removeHarnessRunArtifacts,
   resolveStatePathFromArg,
   statePathFor,
   writeState,
@@ -50,6 +59,112 @@ import {
 } from "./metrics.ts";
 import { HARNESS_ENTRY_TYPE, ISSUE_KEY_PATTERN } from "./types.ts";
 import type { HarnessStep } from "./types.ts";
+
+type HarnessCommandContext = import("@mariozechner/pi-coding-agent").ExtensionContext;
+
+async function ensureJiraTokenInteractive(
+  ctx: HarnessCommandContext,
+  cwd: string,
+  noJira: boolean,
+): Promise<boolean> {
+  if (noJira || hasJiraToken(cwd)) return true;
+
+  const configPath = bfhConfigPath();
+  if (!ctx.hasUI) {
+    ctx.ui.notify(`Missing Jira token. Set JIRA_TOKEN or add jira.token to ${configPath}.`, "error");
+    return false;
+  }
+
+  ctx.ui.notify(
+    ["BFH needs a Jira API token to fetch ticket details.", jiraTokenSetupHint(cwd)].join("\n"),
+    "info",
+  );
+
+  const token = await ctx.ui.input("Jira API token", "paste token here");
+  if (!token?.trim()) {
+    ctx.ui.notify("Jira token is required. Use --no-jira for offline testing without Jira.", "error");
+    return false;
+  }
+
+  const savedPath = saveJiraToken(cwd, token.trim());
+  ctx.ui.notify(`Saved Jira token to ${savedPath}`, "info");
+  return true;
+}
+
+const FRESH_START_ARTIFACTS = [
+  "state file",
+  "brief",
+  "evidence markers",
+  "metrics",
+  "working memory",
+].join(", ");
+
+async function confirmFreshStart(
+  ctx: HarnessCommandContext,
+  issueKey: string,
+  statePath: string,
+  options: { explicitFresh: boolean },
+): Promise<boolean> {
+  if (!ctx.hasUI) {
+    ctx.ui.notify(
+      [
+        `BFH state already exists for ${issueKey}.`,
+        `Use /bfh-resume ${issueKey} to continue that run.`,
+        `Use /bfh ${issueKey} --fresh in the Pi TUI to start over (requires interactive confirmation).`,
+      ].join("\n"),
+      "error",
+    );
+    return false;
+  }
+
+  if (!options.explicitFresh) {
+    const wantsFresh = await ctx.ui.confirm(
+      "BFH state already exists",
+      [
+        `A run for ${issueKey} already exists:`,
+        statePath,
+        "",
+        "Start fresh and delete the existing harness state?",
+        `(Use /bfh-resume ${issueKey} to continue instead.)`,
+      ].join("\n"),
+    );
+    if (!wantsFresh) {
+      ctx.ui.notify(`Use /bfh-resume ${issueKey} to continue that run.`, "info");
+      return false;
+    }
+  } else {
+    const acknowledged = await ctx.ui.confirm(
+      "Start fresh?",
+      [
+        `You passed --fresh for ${issueKey}.`,
+        "",
+        "This will permanently delete the existing harness state before starting a new run.",
+      ].join("\n"),
+    );
+    if (!acknowledged) {
+      ctx.ui.notify("Fresh start cancelled.", "info");
+      return false;
+    }
+  }
+
+  const reallySure = await ctx.ui.confirm(
+    "Confirm fresh start",
+    [
+      `Last chance: permanently delete all BFH artifacts for ${issueKey}?`,
+      "",
+      `Removes: ${FRESH_START_ARTIFACTS}.`,
+      "Does not change git branches or commits.",
+      "",
+      "Are you absolutely sure?",
+    ].join("\n"),
+  );
+  if (!reallySure) {
+    ctx.ui.notify("Fresh start cancelled.", "info");
+    return false;
+  }
+
+  return true;
+}
 
 export function registerBfhCommands(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
@@ -79,13 +194,13 @@ export function registerBfhCommands(pi: ExtensionAPI): void {
 
     const configBootstrap = ensureBfhConfigFile(ctx.cwd);
     if (configBootstrap.created) {
-      ctx.ui.notify(
-        `Created BFH config: ${configBootstrap.configPath} — add Jira token or set JIRA_TOKEN.`,
-        "info",
-      );
+      ctx.ui.notify(`Created BFH config: ${configBootstrap.configPath}`, "info");
     }
 
-    let { issueKey, noJira, autoGo, difficulty } = parseHarnessStartArgs(args || "", ctx.cwd);
+    let { issueKey, noJira, autoGo, fresh, difficulty } = parseHarnessStartArgs(args || "", ctx.cwd);
+
+    if (!(await ensureJiraTokenInteractive(ctx, ctx.cwd, noJira))) return;
+
     if (!issueKey && ctx.hasUI) {
       const input = await ctx.ui.input("Jira ticket key", "e.g. PC-120");
       if (!input) return;
@@ -144,11 +259,10 @@ export function registerBfhCommands(pi: ExtensionAPI): void {
 
     const statePath = statePathFor(ctx.cwd, issueKey);
     if (fs.existsSync(statePath)) {
-      ctx.ui.notify(
-        `BFH state already exists for ${issueKey}. Use /bfh-resume ${issueKey} to continue that run.`,
-        "error",
-      );
-      return;
+      const confirmed = await confirmFreshStart(ctx, issueKey, statePath, { explicitFresh: fresh });
+      if (!confirmed) return;
+      removeHarnessRunArtifacts(statePath);
+      ctx.ui.notify(`Removed existing BFH state for ${issueKey}.`, "info");
     }
 
     let gitPrep;
@@ -216,7 +330,7 @@ export function registerBfhCommands(pi: ExtensionAPI): void {
   };
 
   pi.registerCommand("bfh", {
-    description: "Start BFH. Usage: /bfh PROJ-123 [--level 1|2|3] [--no-jira] [--go] (default level 2)",
+    description: "Start BFH. Usage: /bfh PROJ-123 [--level 1|2|3] [--no-jira] [--fresh] [--go] (default level 2)",
     handler: startHarness,
   });
 
@@ -336,8 +450,10 @@ export function registerBfhCommands(pi: ExtensionAPI): void {
       }
 
       const sessionModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-      const model = resolveSubagentModel(ctx.cwd, "scout", sessionModel);
-      recordModelUse(statePath, model, "bfh-scout");
+      const invocation = resolveSubagentInvocation(ctx.cwd, "scout", sessionModel);
+      const model = invocation.model;
+      const modelLabel = model ? (invocation.thinking ? `${model}:${invocation.thinking}` : model) : undefined;
+      recordModelUse(statePath, modelLabel, "bfh-scout");
       let scoutResult;
       try {
         scoutResult = await runScoutViaSubagentWithRetry({
@@ -346,6 +462,7 @@ export function registerBfhCommands(pi: ExtensionAPI): void {
           cwd: ctx.cwd,
           scoutInput: buildScoutInput(state),
           model,
+          thinking: invocation.thinking,
           statePath,
           state,
         });
@@ -392,8 +509,10 @@ export function registerBfhCommands(pi: ExtensionAPI): void {
       }
 
       const sessionModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-      const model = resolveSubagentModel(ctx.cwd, "reviewer", sessionModel);
-      recordModelUse(statePath, model, "bfh-verify");
+      const invocation = resolveSubagentInvocation(ctx.cwd, "reviewer", sessionModel);
+      const model = invocation.model;
+      const modelLabel = model ? (invocation.thinking ? `${model}:${invocation.thinking}` : model) : undefined;
+      recordModelUse(statePath, modelLabel, "bfh-verify");
       const maxFiles = loadBfhConfig(ctx.cwd).workflow.maxReviewTouchedFiles;
       const touchedFiles = discoverTouchedFiles(ctx.cwd, maxFiles);
       const contextBundle = buildTouchedFileContext(ctx.cwd, touchedFiles);
@@ -417,6 +536,7 @@ export function registerBfhCommands(pi: ExtensionAPI): void {
           reviewerInput,
           systemPrompt: getReviewSystemPrompt(ctx.cwd),
           model,
+          thinking: invocation.thinking,
           statePath,
           state,
         });

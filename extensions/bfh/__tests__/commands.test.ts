@@ -4,6 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { registerBfhCommands } from "../commands.ts";
+import { briefPathFor } from "../brief.ts";
+import { ticketMarkerDir } from "../evidence-markers.ts";
 import { createState, statePathFor, writeState } from "../state.ts";
 import { HARNESS_ENTRY_TYPE } from "../types.ts";
 
@@ -41,11 +43,12 @@ function createHarnessFixture(cwd: string, branch: string, ticketKey: string): s
   return statePath;
 }
 
-function makePiHarness() {
+function makePiHarness(options?: { confirmResults?: boolean[] }) {
   const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
   const notifications: Array<{ message: string; level: string }> = [];
   const sentPrompts: string[] = [];
   const appendedEntries: Array<{ customType: string; data: unknown }> = [];
+  let confirmIndex = 0;
 
   const pi = {
     on: () => {},
@@ -70,7 +73,7 @@ function makePiHarness() {
       setStatus: () => {},
       setEditorText: () => {},
       input: async () => undefined,
-      confirm: async () => false,
+      confirm: async () => options?.confirmResults?.[confirmIndex++] ?? false,
       select: async () => "Stash changes and continue",
     },
     sessionManager: {
@@ -116,6 +119,51 @@ describe("commands", () => {
     const last = harness.notifications[harness.notifications.length - 1];
     expect(last?.level).toBe("warning");
     expect(last?.message).toContain("No BFH state found");
+  });
+
+  test("bfh declines fresh start when user cancels first prompt", async () => {
+    const harness = makePiHarness({ confirmResults: [false] });
+    const { cwd, branch } = setupGitRepo();
+    harness.ctx.cwd = cwd;
+    registerBfhCommands(harness.pi as any);
+
+    const statePath = createHarnessFixture(cwd, branch, "PC-300");
+
+    const command = harness.commands.get("bfh");
+    expect(command).toBeDefined();
+
+    await command!.handler("PC-300 --no-jira", harness.ctx);
+
+    expect(fs.existsSync(statePath)).toBe(true);
+    const resumeHint = harness.notifications.find((entry) => entry.message.includes("/bfh-resume PC-300"));
+    expect(resumeHint).toBeDefined();
+    expect(harness.sentPrompts.length).toBe(0);
+  });
+
+  test("bfh --fresh removes existing state after double confirmation", async () => {
+    const harness = makePiHarness({ confirmResults: [true, true] });
+    const { cwd, branch } = setupGitRepo();
+    harness.ctx.cwd = cwd;
+    registerBfhCommands(harness.pi as any);
+
+    const statePath = createHarnessFixture(cwd, branch, "PC-301");
+    const briefPath = briefPathFor(statePath);
+    const markerDir = ticketMarkerDir(statePath);
+    fs.mkdirSync(markerDir, { recursive: true });
+    fs.writeFileSync(briefPath, "# brief\n", "utf8");
+    fs.writeFileSync(path.join(markerDir, "tested.json"), "{}\n", "utf8");
+
+    const command = harness.commands.get("bfh");
+    expect(command).toBeDefined();
+
+    await command!.handler("PC-301 --no-jira --fresh --go", harness.ctx);
+
+    expect(fs.existsSync(statePath)).toBe(false);
+    expect(fs.existsSync(briefPath)).toBe(false);
+    expect(fs.existsSync(markerDir)).toBe(false);
+
+    const removed = harness.notifications.find((entry) => entry.message.includes("Removed existing BFH state"));
+    expect(removed).toBeDefined();
   });
 
   test("bfh-resume resolves explicit ticket key even when flags are present", async () => {
