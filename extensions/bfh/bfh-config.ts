@@ -92,11 +92,23 @@ export type BfhNotificationsConfig = {
   osNotify?: boolean;
 };
 
+export type BfhSafeModeConfig = {
+  /** Block dangerous shell commands and sensitive file access (default true). */
+  enabled?: boolean;
+  /** Extra case-insensitive regex patterns merged with BFH defaults. */
+  commandPatterns?: string[];
+  /** SSH destination hosts allowed when running `ssh` (empty = block all). */
+  allowedSshHosts?: string[];
+  /** Exact basenames blocked for read/write/edit (default includes .env, history files). */
+  blockedFileBasenames?: string[];
+};
+
 export type BfhConfigFile = {
   jira?: BfhJiraConfig;
   workflow?: BfhWorkflowConfig;
   models?: BfhModelsConfig;
   notifications?: BfhNotificationsConfig;
+  safeMode?: BfhSafeModeConfig;
 };
 
 export type BfhResolvedConfig = {
@@ -123,6 +135,7 @@ export type BfhResolvedConfig = {
     sound: boolean;
     osNotify: boolean;
   };
+  safeMode: Required<Pick<BfhSafeModeConfig, "enabled" | "commandPatterns" | "allowedSshHosts" | "blockedFileBasenames">>;
 };
 
 const CODE_DEFAULTS: BfhResolvedConfig = {
@@ -151,6 +164,12 @@ const CODE_DEFAULTS: BfhResolvedConfig = {
     enabled: true,
     sound: true,
     osNotify: true,
+  },
+  safeMode: {
+    enabled: true,
+    commandPatterns: [],
+    allowedSshHosts: [],
+    blockedFileBasenames: [],
   },
 };
 
@@ -269,6 +288,27 @@ function mergeModels(file: BfhModelsConfig | undefined): BfhModelsConfig {
   };
 }
 
+function mergeSafeMode(file: BfhSafeModeConfig | undefined): BfhResolvedConfig["safeMode"] {
+  const fromFile = file ?? {};
+  const enabled =
+    envBool("BFH_SAFE_MODE", "BFH_SAFE_MODE_ENABLED") ??
+    parseBool(fromFile.enabled) ??
+    CODE_DEFAULTS.safeMode.enabled;
+
+  return {
+    enabled,
+    commandPatterns: Array.isArray(fromFile.commandPatterns)
+      ? fromFile.commandPatterns.map((p) => String(p).trim()).filter(Boolean)
+      : CODE_DEFAULTS.safeMode.commandPatterns,
+    allowedSshHosts: Array.isArray(fromFile.allowedSshHosts)
+      ? fromFile.allowedSshHosts.map((h) => String(h).trim()).filter(Boolean)
+      : CODE_DEFAULTS.safeMode.allowedSshHosts,
+    blockedFileBasenames: Array.isArray(fromFile.blockedFileBasenames)
+      ? fromFile.blockedFileBasenames.map((p) => String(p).trim()).filter(Boolean)
+      : CODE_DEFAULTS.safeMode.blockedFileBasenames,
+  };
+}
+
 function mergeNotifications(file: BfhNotificationsConfig | undefined): BfhResolvedConfig["notifications"] {
   const fromFile = file ?? {};
   const enabled =
@@ -349,6 +389,7 @@ function mergeResolved(file: BfhConfigFile | undefined): BfhResolvedConfig {
     },
     models: mergeModels(file?.models),
     notifications: mergeNotifications(file?.notifications),
+    safeMode: mergeSafeMode(file?.safeMode),
   };
 }
 

@@ -49,8 +49,8 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "bfh_state",
     label: "BFH State",
-    description: "Read or update the lean BFH task state with deterministic transition checks.",
-    promptSnippet: "Read/update lean BFH state for Jira-driven work.",
+    description: "Read or update the BFH task state with deterministic transition checks.",
+    promptSnippet: "Read/update BFH state for Jira-driven work.",
     promptGuidelines: [
       "Use bfh_state during /bfh runs to record phase progress, evidence, review verdicts, and PR/retro notes.",
       "Use bfh_state action `advance` instead of directly editing currentStep; it enforces the revision limit and valid transitions.",

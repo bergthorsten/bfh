@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Lean BFH Ticket Metrics",
+  "title": "BFH Ticket Metrics",
   "type": "object",
   "required": ["schemaVersion", "ticketKey", "difficulty", "startedAt", "updatedAt", "steps", "counters", "humanWaitMs", "subagent", "models"],
   "properties": {

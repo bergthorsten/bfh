@@ -128,7 +128,7 @@ describe("state", () => {
   });
 
   test("read/write round-trip", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-unit-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-unit-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-13.state.json");
     const state = createState({
       key: "PC-13",

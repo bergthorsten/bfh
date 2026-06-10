@@ -3,12 +3,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { registerLeanBfhCommands } from "../commands.ts";
+import { registerBfhCommands } from "../commands.ts";
 import { createState, statePathFor, writeState } from "../state.ts";
 import { HARNESS_ENTRY_TYPE } from "../types.ts";
 
 function setupGitRepo(): { cwd: string; branch: string } {
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-commands-"));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-commands-"));
   execFileSync("git", ["init"], { cwd });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd });
   execFileSync("git", ["config", "user.name", "Test User"], { cwd });
@@ -82,9 +82,9 @@ function makePiHarness() {
 }
 
 describe("commands", () => {
-  test("registerLeanBfhCommands registers core commands", () => {
+  test("registerBfhCommands registers core commands", () => {
     const harness = makePiHarness();
-    registerLeanBfhCommands(harness.pi as any);
+    registerBfhCommands(harness.pi as any);
 
     for (const name of [
       "bfh",
@@ -106,7 +106,7 @@ describe("commands", () => {
     const harness = makePiHarness();
     const { cwd } = setupGitRepo();
     harness.ctx.cwd = cwd;
-    registerLeanBfhCommands(harness.pi as any);
+    registerBfhCommands(harness.pi as any);
 
     const command = harness.commands.get("bfh-status");
     expect(command).toBeDefined();
@@ -115,14 +115,14 @@ describe("commands", () => {
 
     const last = harness.notifications[harness.notifications.length - 1];
     expect(last?.level).toBe("warning");
-    expect(last?.message).toContain("No lean BFH state found");
+    expect(last?.message).toContain("No BFH state found");
   });
 
   test("bfh-resume resolves explicit ticket key even when flags are present", async () => {
     const harness = makePiHarness();
     const { cwd, branch } = setupGitRepo();
     harness.ctx.cwd = cwd;
-    registerLeanBfhCommands(harness.pi as any);
+    registerBfhCommands(harness.pi as any);
 
     const targetPath = createHarnessFixture(cwd, branch, "PC-100");
     createHarnessFixture(cwd, branch, "PC-200");
@@ -134,7 +134,7 @@ describe("commands", () => {
 
     await command!.handler("PC-100 --go", harness.ctx);
 
-    const resumed = harness.notifications.find((entry) => entry.message.includes("Resuming lean BFH:"));
+    const resumed = harness.notifications.find((entry) => entry.message.includes("Resuming BFH:"));
     expect(resumed).toBeDefined();
     expect(resumed!.message).toContain(targetPath);
 

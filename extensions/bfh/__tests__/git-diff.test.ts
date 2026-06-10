@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { buildTouchedFileContext, discoverTouchedFiles } from "../git-diff.ts";
 
 function setupRepo(): string {
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-git-diff-"));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-git-diff-"));
   execFileSync("git", ["init"], { cwd });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd });
   execFileSync("git", ["config", "user.name", "Test User"], { cwd });

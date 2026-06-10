@@ -51,7 +51,7 @@ import {
 import { HARNESS_ENTRY_TYPE, ISSUE_KEY_PATTERN } from "./types.ts";
 import type { HarnessStep } from "./types.ts";
 
-export function registerLeanBfhCommands(pi: ExtensionAPI): void {
+export function registerBfhCommands(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     const statePath = activeStatePathFromSession(ctx);
     if (!statePath || !fs.existsSync(statePath)) {
@@ -145,7 +145,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
     const statePath = statePathFor(ctx.cwd, issueKey);
     if (fs.existsSync(statePath)) {
       ctx.ui.notify(
-        `Lean BFH state already exists for ${issueKey}. Use /bfh-resume ${issueKey} to continue that run.`,
+        `BFH state already exists for ${issueKey}. Use /bfh-resume ${issueKey} to continue that run.`,
         "error",
       );
       return;
@@ -206,27 +206,27 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       statePath,
       startedAt: state.createdAt,
     });
-    pi.setSessionName(`${issueKey}: ${state.summary || "Lean BFH"}`);
+    pi.setSessionName(`${issueKey}: ${state.summary || "BFH"}`);
 
     ctx.ui.notify(
-      `Lean BFH state created: ${statePath} (level ${difficulty}: ${difficultyLabel(difficulty)})`,
+      `BFH state created: ${statePath} (level ${difficulty}: ${difficultyLabel(difficulty)})`,
       "info",
     );
     deliverHarnessPrompt(pi, ctx, createKickoffPrompt(statePath, state, ctx.cwd), { autoGo });
   };
 
   pi.registerCommand("bfh", {
-    description: "Start lean BFH. Usage: /bfh PROJ-123 [--level 1|2|3] [--no-jira] [--go] (default level 2)",
+    description: "Start BFH. Usage: /bfh PROJ-123 [--level 1|2|3] [--no-jira] [--go] (default level 2)",
     handler: startHarness,
   });
 
   pi.registerCommand("bfh-status", {
-    description: "Show lean BFH state. Usage: /bfh-status [TICKET-123|state-path]",
+    description: "Show BFH state. Usage: /bfh-status [TICKET-123|state-path]",
     handler: async (args, ctx) => {
       const explicit = resolveStatePathFromArg(ctx.cwd, args || "");
       const statePath = explicit || activeStatePathFromSession(ctx) || listStateFiles(ctx.cwd)[0];
       if (!statePath || !fs.existsSync(statePath)) {
-        ctx.ui.notify("No lean BFH state found in this repo/session.", "warning");
+        ctx.ui.notify("No BFH state found in this repo/session.", "warning");
         return;
       }
 
@@ -239,11 +239,11 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("bfh-list", {
-    description: "List lean BFH state files in this repo.",
+    description: "List BFH state files in this repo.",
     handler: async (_args, ctx) => {
       const files = listStateFiles(ctx.cwd);
       if (files.length === 0) {
-        ctx.ui.notify("No lean BFH state files found.", "info");
+        ctx.ui.notify("No BFH state files found.", "info");
         return;
       }
 
@@ -260,20 +260,20 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("bfh-selftest", {
-    description: "Run local deterministic smoke checks for lean BFH state machine.",
+    description: "Run local deterministic smoke checks for BFH state machine.",
     handler: async (_args, ctx) => {
       try {
         const report = runHarnessSelfTest(ctx.cwd);
         ctx.ui.notify(report, "info");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`Lean BFH self-test failed: ${message}`, "error");
+        ctx.ui.notify(`BFH self-test failed: ${message}`, "error");
       }
     },
   });
 
   pi.registerCommand("bfh-resume", {
-    description: "Resume lean BFH state. Usage: /bfh-resume [TICKET-123|state-path] [--go]",
+    description: "Resume BFH state. Usage: /bfh-resume [TICKET-123|state-path] [--go]",
     handler: async (args, ctx) => {
       if (!ctx.isIdle()) {
         ctx.ui.notify("Agent is busy. Wait until current work is done.", "warning");
@@ -287,7 +287,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
         (parsedArgs.issueKey ? resolveStatePathFromArg(ctx.cwd, parsedArgs.issueKey) : undefined);
       const statePath = explicit || activeStatePathFromSession(ctx) || listStateFiles(ctx.cwd)[0];
       if (!statePath || !fs.existsSync(statePath)) {
-        ctx.ui.notify("No lean BFH state found to resume.", "warning");
+        ctx.ui.notify("No BFH state found to resume.", "warning");
         return;
       }
 
@@ -312,8 +312,8 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
         statePath,
         resumedAt: new Date().toISOString(),
       });
-      pi.setSessionName(`${state.ticketKey}: ${state.summary || "Lean BFH"}`);
-      ctx.ui.notify(`Resuming lean BFH: ${statePath}`, "info");
+      pi.setSessionName(`${state.ticketKey}: ${state.summary || "BFH"}`);
+      ctx.ui.notify(`Resuming BFH: ${statePath}`, "info");
       deliverHarnessPrompt(pi, ctx, createResumePrompt(statePath, state, ctx.cwd), { autoGo });
     },
   });
@@ -324,7 +324,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       const explicit = resolveStatePathFromArg(ctx.cwd, args || "");
       const statePath = explicit || activeStatePathFromSession(ctx) || listStateFiles(ctx.cwd)[0];
       if (!statePath || !fs.existsSync(statePath)) {
-        ctx.ui.notify("No lean BFH state found to scout.", "warning");
+        ctx.ui.notify("No BFH state found to scout.", "warning");
         return;
       }
 
@@ -380,7 +380,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       const explicit = resolveStatePathFromArg(ctx.cwd, args || "");
       const statePath = explicit || activeStatePathFromSession(ctx) || listStateFiles(ctx.cwd)[0];
       if (!statePath || !fs.existsSync(statePath)) {
-        ctx.ui.notify("No lean BFH state found to verify.", "warning");
+        ctx.ui.notify("No BFH state found to verify.", "warning");
         return;
       }
 
@@ -482,7 +482,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       const explicit = resolveStatePathFromArg(ctx.cwd, args || "");
       const statePath = explicit || activeStatePathFromSession(ctx) || listStateFiles(ctx.cwd)[0];
       if (!statePath || !fs.existsSync(statePath)) {
-        ctx.ui.notify("No lean BFH state found to close.", "warning");
+        ctx.ui.notify("No BFH state found to close.", "warning");
         return;
       }
 
@@ -539,7 +539,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       const explicit = resolveStatePathFromArg(ctx.cwd, args || "");
       const statePath = explicit || activeStatePathFromSession(ctx) || listStateFiles(ctx.cwd)[0];
       if (!statePath || !fs.existsSync(statePath)) {
-        ctx.ui.notify("No lean BFH state found.", "warning");
+        ctx.ui.notify("No BFH state found.", "warning");
         return;
       }
 
@@ -590,7 +590,7 @@ export function registerLeanBfhCommands(pi: ExtensionAPI): void {
       const explicit = resolveStatePathFromArg(ctx.cwd, args || "");
       const statePath = explicit || activeStatePathFromSession(ctx) || listStateFiles(ctx.cwd)[0];
       if (!statePath || !fs.existsSync(statePath)) {
-        ctx.ui.notify("No lean BFH state found for retro.", "warning");
+        ctx.ui.notify("No BFH state found for retro.", "warning");
         return;
       }
 

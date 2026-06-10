@@ -64,7 +64,7 @@ Install these before installing BFH:
    BFH uses subagents for scout and review steps.
 
    ```bash
-   pi install npm:pi-subagents
+   pi install npm:@tintinweb/pi-subagents
    ```
 
 4. **GitHub CLI for PR creation**
@@ -89,7 +89,7 @@ The fastest install path is:
 curl -fsSL https://github.com/bergthorsten/bfh/releases/latest/download/install.sh | sh
 ```
 
-The installer checks for Node.js 22+, installs Pi, installs `pi-subagents`, and installs BFH from the latest GitHub release.
+The installer checks for Node.js 22+, installs Pi, installs `@tintinweb/pi-subagents`, and installs BFH from the latest GitHub release.
 
 Published GitHub releases automatically upload the repository's root `install.sh` as the `install.sh` release asset used by this URL.
 
@@ -295,15 +295,18 @@ bfh/
     reviewer.md
     closer.md
     retrospective.md
-  extensions/lean_bfh/
+  extensions/bfh/
     index.ts
     commands.ts
     tool.ts
     state.ts
     jira.ts
     subagent.ts
+    bfh-agents.ts
+    pi-subagents-bridge.ts
     close.ts
     kickoff.ts
+  .pi/agents/          # auto-synced scout.md + reviewer.md at session start
 ```
 
 ## Troubleshooting

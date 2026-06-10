@@ -1,7 +1,10 @@
 ---
-name: reviewer
 description: Fresh-context code review agent for BFH. Produces severity-classified findings that gate PR creation.
-tools: ['Read', 'Bash', 'Glob', 'Grep']
+tools: read, bash, grep, find, ls
+extensions: false
+skills: false
+prompt_mode: replace
+max_turns: 40
 ---
 
 # Reviewer — Code Review Agent

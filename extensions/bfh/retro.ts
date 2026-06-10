@@ -99,8 +99,8 @@ function inferPriority(summary: string, signals: RetroSignal[]): RetroPriority {
 function inferTargetArea(summary: string): string {
   if (/scout/i.test(summary)) return "agents/scout.md";
   if (/review|verify/i.test(summary)) return "agents/reviewer.md";
-  if (/close|pr|github/i.test(summary)) return "extensions/lean_bfh/close.ts";
-  return "extensions/lean_bfh/tool.ts";
+  if (/close|pr|github/i.test(summary)) return "extensions/bfh/close.ts";
+  return "extensions/bfh/tool.ts";
 }
 
 function findExistingAmendmentBySummary(amendmentsDir: string, date: string, summarySlug: string): string | undefined {

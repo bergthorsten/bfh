@@ -109,6 +109,33 @@ describe("bfh-config", () => {
     }
   });
 
+  test("safeMode defaults to enabled", () => {
+    const cwd = tempRepo();
+    clearBfhConfigCache();
+    expect(loadBfhConfig(cwd).safeMode).toEqual({
+      enabled: true,
+      commandPatterns: [],
+      allowedSshHosts: [],
+      blockedFileBasenames: [],
+    });
+  });
+
+  test("safeMode respects env disable", () => {
+    const cwd = tempRepo();
+    ensureBfhConfigFile(cwd);
+    clearBfhConfigCache();
+
+    const prev = process.env.BFH_SAFE_MODE;
+    process.env.BFH_SAFE_MODE = "false";
+    try {
+      clearBfhConfigCache();
+      expect(loadBfhConfig(cwd).safeMode.enabled).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.BFH_SAFE_MODE;
+      else process.env.BFH_SAFE_MODE = prev;
+    }
+  });
+
   test("uses shipped defaults when models omitted from config", () => {
     const cwd = tempRepo();
     clearBfhConfigCache();

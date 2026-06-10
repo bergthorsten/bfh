@@ -5,22 +5,22 @@
   "description": "Pi extension: Jira ticket → verified PR harness (/bfh)",
   "keywords": ["pi-package"],
   "pi": {
-    "extensions": ["./extensions/lean_bfh"]
+    "extensions": ["./extensions/bfh"]
   },
   "scripts": {
-    "test": "bun test extensions/lean_bfh/__tests__",
-    "selftest": "bun extensions/lean_bfh/run-selftest.ts",
-    "validate:schema": "bun extensions/lean_bfh/validate-schema.ts",
+    "test": "bun test extensions/bfh/__tests__",
+    "selftest": "bun extensions/bfh/run-selftest.ts",
+    "validate:schema": "bun extensions/bfh/validate-schema.ts",
     "check": "bun run test && bun run selftest && bun run validate:schema"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-ai": "*",
-    "pi-subagents": "*",
+    "@tintinweb/pi-subagents": "*",
     "typebox": "*"
   },
   "peerDependenciesMeta": {
-    "pi-subagents": {
+    "@tintinweb/pi-subagents": {
       "optional": true
     }
   },

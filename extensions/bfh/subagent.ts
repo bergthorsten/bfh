@@ -1,35 +1,42 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { loadAgentPrompt } from "./prompt-loader.ts";
+import { ensureBfhSubagentDefinitions } from "./bfh-agents.ts";
+import { readPrinciplesExcerpt } from "./harness-docs.ts";
 import { recordSubagentRun } from "./metrics.ts";
 import { shouldRetryAgentParse } from "./normalize.ts";
 import {
-  extractTextFromSubagentResponse,
-  metricsFromSubagentResponse,
+  extractTextFromSubagentResult,
+  metricsFromSubagentResult,
   runSubagentViaPiSubagents,
   type PiSubagentParams,
 } from "./pi-subagents-bridge.ts";
 import type { HarnessState, SubagentRunResult } from "./types.ts";
 
-function buildSubagentReviewerTask(systemPrompt: string, reviewerInput: string): string {
-  return [systemPrompt, "", "## Ticket + implementation context", reviewerInput].join("\n");
+function buildScoutPrompt(scoutInput: string): string {
+  return ["## Ticket + repository context", "", scoutInput].join("\n");
 }
 
-function buildScoutSubagentTask(scoutPrompt: string, scoutInput: string): string {
-  return [scoutPrompt, "", "## Ticket + repository context", scoutInput].join("\n");
+function buildReviewerPrompt(reviewerInput: string, cwd?: string): string {
+  const parts: string[] = [];
+  if (cwd) {
+    const principles = readPrinciplesExcerpt(cwd);
+    if (principles) {
+      parts.push("## Repo principles (cite via principleRef)", "", principles);
+    }
+  }
+  parts.push("## Ticket + implementation context", "", reviewerInput);
+  return parts.join("\n");
 }
 
 function buildSubagentParams(
   agent: "scout" | "reviewer",
   task: string,
-  options: { cwd: string; model?: string },
+  options: { model?: string; description?: string },
 ): PiSubagentParams {
   return {
     agent,
     task,
-    context: "fresh",
-    progress: true,
+    ...(options.description ? { description: options.description } : {}),
     ...(options.model ? { model: options.model } : {}),
-    ...(options.cwd ? { cwd: options.cwd } : {}),
   };
 }
 
@@ -40,6 +47,7 @@ async function runHarnessSubagent(options: {
   agent: "scout" | "reviewer";
   task: string;
   label: string;
+  description?: string;
   model?: string;
   signal?: AbortSignal;
   statePath?: string;
@@ -49,18 +57,20 @@ async function runHarnessSubagent(options: {
     throw new Error(`${options.label} subagent aborted.`);
   }
 
+  ensureBfhSubagentDefinitions(options.cwd);
+
   const startedAt = Date.now();
   const params = buildSubagentParams(options.agent, options.task, {
-    cwd: options.cwd,
     model: options.model,
+    description: options.description,
   });
 
   const response = await runSubagentViaPiSubagents(options.pi, options.ctx, params, {
     signal: options.signal,
   });
 
-  const text = extractTextFromSubagentResponse(response);
-  const { exitCode, toolCalls } = metricsFromSubagentResponse(response);
+  const text = extractTextFromSubagentResult(response);
+  const { exitCode, toolCalls } = metricsFromSubagentResult(response);
 
   const result: SubagentRunResult = {
     text,
@@ -93,8 +103,10 @@ export async function runFreshReviewViaSubagent(options: {
   statePath?: string;
   state?: HarnessState;
 }): Promise<SubagentRunResult> {
-  const systemPrompt = options.systemPrompt ?? loadAgentPrompt("reviewer");
-  const task = buildSubagentReviewerTask(systemPrompt, options.reviewerInput);
+  let task = buildReviewerPrompt(options.reviewerInput, options.cwd);
+  if (options.systemPrompt?.trim()) {
+    task = [options.systemPrompt.trim(), "", task].join("\n");
+  }
   return runHarnessSubagent({
     pi: options.pi,
     ctx: options.ctx,
@@ -102,6 +114,7 @@ export async function runFreshReviewViaSubagent(options: {
     agent: "reviewer",
     task,
     label: "Fresh review",
+    description: "Fresh code review",
     model: options.model,
     signal: options.signal,
     statePath: options.statePath,
@@ -119,8 +132,7 @@ export async function runScoutViaSubagent(options: {
   statePath?: string;
   state?: HarnessState;
 }): Promise<SubagentRunResult> {
-  const scoutPrompt = loadAgentPrompt("scout");
-  const task = buildScoutSubagentTask(scoutPrompt, options.scoutInput);
+  const task = buildScoutPrompt(options.scoutInput);
   return runHarnessSubagent({
     pi: options.pi,
     ctx: options.ctx,
@@ -128,6 +140,7 @@ export async function runScoutViaSubagent(options: {
     agent: "scout",
     task,
     label: "Scout",
+    description: "Scout reconnaissance",
     model: options.model,
     signal: options.signal,
     statePath: options.statePath,

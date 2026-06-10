@@ -4,7 +4,7 @@ description: Lean retrospective helper for BFH runs. Turns run signals into one 
 tools: ['bfh_state']
 ---
 
-# Retrospective — Lean BFH
+# Retrospective — BFH
 
 You are in the `retro` phase of a BFH run.
 

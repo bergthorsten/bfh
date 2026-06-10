@@ -3,7 +3,7 @@ import { STEP_ORDER, type HarnessState } from "./types.ts";
 
 type StatusContext = Pick<ExtensionContext, "ui">;
 
-const STATUS_KEY = "lean_bfh";
+const STATUS_KEY = "bfh";
 const BAR_WIDTH = 10;
 
 function getStepProgress(state: HarnessState): { completedSteps: number; totalSteps: number; label: string } {

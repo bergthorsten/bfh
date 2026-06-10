@@ -1,6 +1,6 @@
 ---
 name: closer
-description: PR creation agent for lean BFH. Drafts PR descriptions and verifies close gates before gh pr create.
+description: PR creation agent for BFH. Drafts PR descriptions and verifies close gates before gh pr create.
 tools: ['Read', 'Bash', 'Glob', 'Grep']
 ---
 

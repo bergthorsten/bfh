@@ -1,7 +1,10 @@
 ---
-name: scout
 description: Read-only exploration agent for BFH. Surfaces relevant files, patterns, and constraints before implementation.
-tools: ['Read', 'Bash', 'Glob', 'Grep']
+tools: read, bash, grep, find, ls
+extensions: false
+skills: false
+prompt_mode: replace
+max_turns: 30
 ---
 
 # Scout — Read-Only Exploration Agent

@@ -32,7 +32,7 @@ function makeCloseReadyState() {
 }
 
 function setupGitRepo(): string {
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-repo-"));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-close-repo-"));
   execFileSync("git", ["init"], { cwd });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd });
   execFileSync("git", ["config", "user.name", "Test User"], { cwd });
@@ -44,7 +44,7 @@ function setupGitRepo(): string {
 
 describe("evaluateCloseReadiness", () => {
   test("fails when step is not close", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-close-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-30.state.json");
     const state = makeCloseReadyState();
     state.currentStep = "implement";
@@ -56,7 +56,7 @@ describe("evaluateCloseReadiness", () => {
   });
 
   test("fails without filesystem markers", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-close-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-30.state.json");
     const state = makeCloseReadyState();
     writeState(statePath, state);
@@ -67,7 +67,7 @@ describe("evaluateCloseReadiness", () => {
   });
 
   test("passes with evidence and markers", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-ok-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-close-ok-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-31.state.json");
     const state = makeCloseReadyState();
     state.ticketKey = "PC-31";
@@ -82,7 +82,7 @@ describe("evaluateCloseReadiness", () => {
   });
 
   test("blocks when human pre-close approval is missing", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-human-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-close-human-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-35.state.json");
     const state = makeCloseReadyState();
     state.ticketKey = "PC-35";
@@ -97,7 +97,7 @@ describe("evaluateCloseReadiness", () => {
   });
 
   test("difficulty level 1 bypasses pre-close human gate", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-level1-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-close-level1-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-36.state.json");
     const state = makeCloseReadyState();
     state.ticketKey = "PC-36";
@@ -112,7 +112,7 @@ describe("evaluateCloseReadiness", () => {
   });
 
   test("blocks on critical findings without override", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-crit-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-close-crit-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-32.state.json");
     const state = makeCloseReadyState();
     state.ticketKey = "PC-32";
@@ -133,7 +133,7 @@ describe("evaluateCloseReadiness", () => {
 
 describe("executeCloseCreate", () => {
   test("dryRun returns PR payload without creating PR", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-close-dry-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-close-dry-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-80.state.json");
     const state = makeCloseReadyState();
     state.ticketKey = "PC-80";

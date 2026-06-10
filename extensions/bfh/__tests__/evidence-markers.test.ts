@@ -32,7 +32,7 @@ describe("evidence markers", () => {
   });
 
   test("write/read tested and reviewed markers", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-markers-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-markers-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-20.state.json");
     const state = createState({
       key: "PC-20",
@@ -62,7 +62,7 @@ describe("evidence markers", () => {
   });
 
   test("validateEvidenceMarkersForClose reports missing markers", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-validate-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-validate-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-21.state.json");
     const state = createState({
       key: "PC-21",
@@ -82,7 +82,7 @@ describe("evidence markers", () => {
   });
 
   test("validateEvidenceMarkersForClose passes with seeded markers", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-validate-ok-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-validate-ok-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-22.state.json");
     const state = createState({
       key: "PC-22",

@@ -37,6 +37,15 @@
     "enabled": true,
     "sound": true,
     "osNotify": true
+  },
+
+  // Safe mode blocks dangerous shell commands and sensitive file reads/writes.
+  // Env: BFH_SAFE_MODE=0 to disable. SSH hosts must be listed to allow `ssh`.
+  "safeMode": {
+    "enabled": true,
+    // "commandPatterns": ["\\bmy-custom-danger\\b"],
+    // "allowedSshHosts": ["deploy.example.com"],
+    // "blockedFileBasenames": [".env", ".env.production", ".bash_history", ".zsh_history"]
   }
 
   // Uncomment only to override BFH package defaults (`provider/id` or `provider/id:thinking`).

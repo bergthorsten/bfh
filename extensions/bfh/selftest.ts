@@ -545,5 +545,5 @@ export function runHarnessSelfTest(cwd: string): string {
     "review transition matches outcome table",
   );
 
-  return ["Lean BFH self-test passed.", ...lines, `State fixture: ${tmpPath}`].join("\n");
+  return ["BFH self-test passed.", ...lines, `State fixture: ${tmpPath}`].join("\n");
 }

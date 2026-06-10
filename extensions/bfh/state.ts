@@ -427,7 +427,7 @@ export function activeStatePathFromSession(ctx: ExtensionContext): string | unde
 export function resolveStatePath(ctx: ExtensionContext, explicit?: string): string {
   const candidate = explicit?.trim() || activeStatePathFromSession(ctx);
   if (!candidate) {
-    throw new Error("No active lean BFH state. Start with /bfh PROJ-123 or pass statePath.");
+    throw new Error("No active BFH state. Start with /bfh PROJ-123 or pass statePath.");
   }
   return path.isAbsolute(candidate) ? candidate : path.resolve(ctx.cwd, candidate);
 }

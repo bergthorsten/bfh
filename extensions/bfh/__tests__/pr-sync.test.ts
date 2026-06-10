@@ -32,7 +32,7 @@ function makePrReviewState() {
 
 describe("pr sync marker", () => {
   test("marker written after persisted state is not immediately stale", () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lean-bfh-pr-sync-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-pr-sync-"));
     const statePath = path.join(cwd, ".pi", "bfh", "PC-40.state.json");
     const state = makePrReviewState();
     writeState(statePath, state);

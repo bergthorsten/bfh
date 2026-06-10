@@ -30,7 +30,7 @@ export function renderStatus(statePath: string, state: HarnessState): string {
   const metricsLine = metrics ? formatMetricsSummary(metrics) : undefined;
 
   return [
-    `# ${state.ticketKey} — ${state.summary || "Lean BFH task"}`,
+    `# ${state.ticketKey} — ${state.summary || "BFH task"}`,
     "",
     stateToolText(statePath, state),
     ...(metricsLine ? ["", metricsLine] : []),

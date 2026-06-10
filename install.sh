@@ -28,8 +28,8 @@ fi
 echo "Installing Pi..."
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
-echo "Installing pi-subagents..."
-pi install npm:pi-subagents
+echo "Installing @tintinweb/pi-subagents..."
+pi install npm:@tintinweb/pi-subagents
 
 echo "Resolving latest BFH release..."
 latest_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/${repo}/releases/latest")"

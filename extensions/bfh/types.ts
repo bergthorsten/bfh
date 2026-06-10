@@ -256,7 +256,7 @@ export type CreateStateOptions = {
 
 export const ISSUE_KEY_PATTERN = /^[A-Z][A-Z0-9]+-\d+$/;
 export const DEFAULT_JIRA_BASE_URL = "https://portal.bergfreunde.de/jira";
-export const HARNESS_ENTRY_TYPE = "lean_bfh_state";
+export const HARNESS_ENTRY_TYPE = "bfh_state";
 export const STATE_DIR = path.join(".pi", "bfh");
 
 export const STEP_ORDER: HarnessStep[] = [
