@@ -62,7 +62,7 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
       "Use bfh_state action `mark_manual_tested` when src-like files changed and manual verification was done.",
       "Use bfh_state action `human_gate` for human checkpoints: optional pre-implement approval and required pre-close approval/change request (not at difficulty level 1).",
       "At difficulty level 3, after scout advance to clarify and run `design_gate`: submit 2–3 options, record human choice, submit proposal, then accept/decline before implement.",
-      "verify_review writes reviewed.json; close requires tested.json + reviewed.json (critical: 0) and human pre-close approval.",
+      "verify_review writes reviewed.json + REVIEW.md; close requires tested.json + reviewed.json (critical: 0) and human pre-close approval.",
       "Use bfh_state action `close_create` to enforce close gates and create a draft PR safely.",
       "Use bfh_state action `close_check` when you only need readiness + PR body without creating a PR.",
       "Use bfh_state action `update_memory` during repair loops to record failed approaches (injected on resume).",

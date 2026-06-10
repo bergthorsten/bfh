@@ -1,8 +1,12 @@
 /**
- * Sync BFH scout/reviewer agent definitions into .pi/agents/ for @tintinweb/pi-subagents.
+ * Sync BFH scout/reviewer agent definitions into the global Pi agents dir
+ * (`~/.pi/agent/agents` by default) for @tintinweb/pi-subagents.
+ *
+ * Repo-local `.pi/agents/<name>.md` files remain optional user overrides.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { resolvePiAgentDir } from "./bfh-config.ts";
 import { getAgentPromptPath, getPackageRoot } from "./prompt-loader.ts";
 
 const BFH_SUBAGENT_NAMES = ["scout", "reviewer"] as const;
@@ -37,7 +41,7 @@ function buildTintinwebAgentMarkdown(agentName: BfhSubagentName, body: string): 
     `description: ${meta.description}`,
     `tools: ${READ_ONLY_TOOLS}`,
     "extensions: false",
-    "skills: false",
+    "skills: true",
     "prompt_mode: replace",
     `max_turns: ${meta.maxTurns}`,
     "---",
@@ -47,14 +51,16 @@ function buildTintinwebAgentMarkdown(agentName: BfhSubagentName, body: string): 
   ].join("\n");
 }
 
-/** Write scout/reviewer agent .md files to `<cwd>/.pi/agents/` when content differs. */
+/** Write scout/reviewer agent .md files to the global Pi agents dir when content differs. */
 export function ensureBfhSubagentDefinitions(cwd: string): void {
-  const destDir = path.join(cwd, ".pi", "agents");
+  const destDir = getBfhSubagentDefinitionsDir();
+  const legacyProjectDir = path.join(cwd, ".pi", "agents");
   fs.mkdirSync(destDir, { recursive: true });
 
   for (const agentName of BFH_SUBAGENT_NAMES) {
     const sourcePath = getAgentPromptPath(agentName);
     const destPath = path.join(destDir, `${agentName}.md`);
+    const legacyPath = path.join(legacyProjectDir, `${agentName}.md`);
     const raw = fs.readFileSync(sourcePath, "utf8");
     const body = stripFrontmatter(raw);
     const content = buildTintinwebAgentMarkdown(agentName, body);
@@ -62,11 +68,15 @@ export function ensureBfhSubagentDefinitions(cwd: string): void {
     if (!fs.existsSync(destPath) || fs.readFileSync(destPath, "utf8") !== content) {
       fs.writeFileSync(destPath, content, "utf8");
     }
+
+    if (fs.existsSync(legacyPath) && fs.readFileSync(legacyPath, "utf8") === content) {
+      fs.rmSync(legacyPath, { force: true });
+    }
   }
 }
 
-export function getBfhSubagentDefinitionsDir(cwd: string): string {
-  return path.join(cwd, ".pi", "agents");
+export function getBfhSubagentDefinitionsDir(): string {
+  return path.join(resolvePiAgentDir(), "agents");
 }
 
 export function getPackageAgentsDir(): string {

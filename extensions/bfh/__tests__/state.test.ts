@@ -147,6 +147,29 @@ describe("state", () => {
     expect(loaded.summary).toBe("round trip");
   });
 
+  test("writeState ensures .pi/bfh/.gitignore exists", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-unit-"));
+    const statePath = path.join(cwd, ".pi", "bfh", "PC-131.state.json");
+    const state = createState({
+      key: "PC-131",
+      title: "gitignore",
+      type: "task",
+      status: "todo",
+      description: "",
+      linkedTickets: [],
+      labels: [],
+    });
+
+    writeState(statePath, state);
+
+    const gitignorePath = path.join(cwd, ".pi", "bfh", ".gitignore");
+    expect(fs.existsSync(gitignorePath)).toBe(true);
+    const content = fs.readFileSync(gitignorePath, "utf8");
+    expect(content).toContain("# BFH runtime artifacts");
+    expect(content).toContain("*");
+    expect(content).toContain("!.gitignore");
+  });
+
   test("removeHarnessRunArtifacts deletes state, brief, and ticket dir", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bfh-state-remove-"));
     const statePath = statePathFor(cwd, "PC-14");

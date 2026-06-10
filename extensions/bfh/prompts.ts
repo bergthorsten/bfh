@@ -34,7 +34,7 @@ function deliveryGuidelinesBlock(statePath: string): string[] {
     "- Small refactors are acceptable only when they clearly reduce risk or make the requested change simpler now; avoid broad cleanup.",
     `- Redirect test/build output to \`${logs}*.log\`; record summaries + log paths in \`bfh_state\` evidence, not raw stdout.`,
     "- On a failed approach: `git reset --hard` to the last good commit before retrying — do not stack broken commits.",
-    "- Do not edit `.pi/bfh/**/tested.json`, `reviewed.json`, or other harness marker files by hand.",
+    "- Do not edit `.pi/bfh/**/tested.json`, `reviewed.json`, `REVIEW.md`, or other harness marker files by hand.",
   ];
 }
 

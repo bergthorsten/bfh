@@ -6,6 +6,7 @@ import {
   hashTestOutput,
   readReviewedMarker,
   readTestedMarker,
+  reviewReportPath,
   reviewedMarkerPath,
   testedMarkerPath,
   ticketKeyFromStatePath,
@@ -29,6 +30,7 @@ describe("evidence markers", () => {
     expect(ticketMarkerDir(statePath)).toBe("/repo/.pi/bfh/PC-9");
     expect(testedMarkerPath(statePath)).toBe("/repo/.pi/bfh/PC-9/tested.json");
     expect(reviewedMarkerPath(statePath)).toBe("/repo/.pi/bfh/PC-9/reviewed.json");
+    expect(reviewReportPath(statePath)).toBe("/repo/.pi/bfh/PC-9/REVIEW.md");
   });
 
   test("write/read tested and reviewed markers", () => {
@@ -59,6 +61,10 @@ describe("evidence markers", () => {
     const reviewed = readReviewedMarker(statePath);
     expect(reviewed?.verdict).toBe("approved");
     expect(reviewed?.critical).toBe(0);
+
+    const reviewMd = fs.readFileSync(reviewReportPath(statePath), "utf8");
+    expect(reviewMd).toContain("# Review Report — PC-20");
+    expect(reviewMd).toContain("## Findings");
   });
 
   test("validateEvidenceMarkersForClose reports missing markers", () => {

@@ -29,7 +29,7 @@ Humans steer, agents execute. You provide the ticket + repo context; BFH gives t
 | `extensions/bfh/design-review.ts` | Level-3 design_gate flow (options → choice → proposal → accept/decline). |
 | `extensions/bfh/outcome-table.ts` | Maps subagent outcomes → next phase. |
 | `extensions/bfh/close.ts` | Close gates + draft PR creation via `gh`. |
-| `extensions/bfh/bfh-agents.ts` | Syncs scout/reviewer prompts to `.pi/agents/` for @tintinweb/pi-subagents. |
+| `extensions/bfh/bfh-agents.ts` | Syncs scout/reviewer prompts to global `~/.pi/agent/agents/` (repo `.pi/agents/` can override) for @tintinweb/pi-subagents. |
 | `extensions/bfh/subagent.ts` | Runs scout/review via @tintinweb/pi-subagents RPC; parses `AGENT_RESULT`. |
 | `extensions/bfh/pi-subagents-bridge.ts` | Cross-extension RPC bridge to @tintinweb/pi-subagents. |
 | `extensions/bfh/evidence-markers.ts` | Writes `tested.json` / `reviewed.json` markers; close-gate evidence. |

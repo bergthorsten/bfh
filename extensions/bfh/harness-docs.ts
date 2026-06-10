@@ -26,10 +26,12 @@ Lean Bergfreunde Harness state for this repo lives under \`.pi/bfh/\`.
 
 | Path | Purpose |
 |------|---------|
+| \`.gitignore\` | Prevents BFH runtime artifacts from being committed |
 | \`<TICKET>.state.json\` | Phase, review, evidence (agent may patch via \`bfh_state\`) |
 | \`<TICKET>.brief.md\` | Mission summary + progress log |
 | \`<TICKET>/tested.json\` | SHA-pinned test output (harness only) |
 | \`<TICKET>/reviewed.json\` | Review counts at verify time (harness only) |
+| \`<TICKET>/REVIEW.md\` | Human-readable review summary + findings |
 | \`<TICKET>/working-memory.json\` | Repair-loop context |
 | \`<TICKET>/pr-review.json\` | Last GitHub PR review sync (harness only) |
 | \`principles.md\` | Enforced vs advisory rules for reviewer |

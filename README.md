@@ -247,10 +247,12 @@ After a draft PR exists, BFH can sync GitHub review status and status-check resu
 For a ticket like `PC-120`, expect files like:
 
 ```text
+.pi/bfh/.gitignore
 .pi/bfh/PC-120.state.json
 .pi/bfh/PC-120.brief.md
 .pi/bfh/PC-120/tested.json
 .pi/bfh/PC-120/reviewed.json
+.pi/bfh/PC-120/REVIEW.md
 .pi/bfh/PC-120/manual-tested.json
 .pi/bfh/PC-120/working-memory.json
 .pi/bfh/PC-120/pr-review.json
@@ -306,7 +308,7 @@ bfh/
     pi-subagents-bridge.ts
     close.ts
     kickoff.ts
-  .pi/agents/          # auto-synced scout.md + reviewer.md at session start
+  ~/.pi/agent/agents/  # auto-synced scout.md + reviewer.md (repo .pi/agents can override)
 ```
 
 ## Troubleshooting

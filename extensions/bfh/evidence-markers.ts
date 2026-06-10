@@ -60,6 +60,10 @@ export function reviewedMarkerPath(statePath: string): string {
   return path.join(ticketMarkerDir(statePath), "reviewed.json");
 }
 
+export function reviewReportPath(statePath: string): string {
+  return path.join(ticketMarkerDir(statePath), "REVIEW.md");
+}
+
 export function manualTestedMarkerPath(statePath: string): string {
   return path.join(ticketMarkerDir(statePath), "manual-tested.json");
 }
@@ -72,6 +76,73 @@ function ensureMarkerDir(statePath: string): string {
 
 function writeMarker<T>(filePath: string, payload: T): void {
   fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+}
+
+function escapeMarkdownCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n+/g, " ").trim();
+}
+
+function formatLocation(file?: string, line?: number): string {
+  if (!file) return "";
+  if (typeof line === "number") return `${file}:${line}`;
+  return file;
+}
+
+function buildReviewReportMarkdown(state: HarnessState, marker: ReviewedMarker): string {
+  const review = state.review;
+  const findingsSection = review.findings.length
+    ? [
+        "| Severity | Category | Message | Location | Principle |",
+        "|---|---|---|---|---|",
+        ...review.findings.map((finding) =>
+          `| ${[
+            finding.severity,
+            finding.category,
+            escapeMarkdownCell(finding.message),
+            escapeMarkdownCell(formatLocation(finding.file, finding.line)),
+            escapeMarkdownCell(finding.principleRef ?? ""),
+          ].join(" | ")} |`,
+        ),
+      ].join("\n")
+    : "No findings.";
+
+  const rubricSection = review.rubric?.categories?.length
+    ? [
+        "## Rubric",
+        "",
+        "| Category | Verdict | Detail |",
+        "|---|---|---|",
+        ...review.rubric.categories.map(
+          (entry) =>
+            `| ${[
+              escapeMarkdownCell(entry.category),
+              escapeMarkdownCell(entry.verdict),
+              escapeMarkdownCell(entry.detail),
+            ].join(" | ")} |`,
+        ),
+        "",
+      ].join("\n")
+    : "";
+
+  return [
+    `# Review Report — ${state.ticketKey}`,
+    "",
+    `- Generated: ${marker.timestamp}`,
+    `- Verdict: ${marker.verdict}`,
+    `- Counts: critical=${marker.critical}, warning=${marker.warning}, info=${marker.info}`,
+    "",
+    "## Summary",
+    "",
+    review.summary?.trim() || "No summary provided.",
+    "",
+    "## Findings",
+    "",
+    findingsSection,
+    "",
+    rubricSection,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function readMarker<T>(filePath: string): T | null {
@@ -132,6 +203,7 @@ export function writeReviewedMarker(
     writtenBy,
   };
   writeMarker(reviewedMarkerPath(statePath), marker);
+  fs.writeFileSync(reviewReportPath(statePath), `${buildReviewReportMarkdown(state, marker)}\n`, "utf8");
   return marker;
 }
 

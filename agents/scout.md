@@ -55,6 +55,7 @@ The harness treats failed scout as **non-blocking** — implementation may proce
 
 - Read-only. No writes, commits, or installs.
 - Stay within the time budget.
+- Load reusable skills from `.agents/skills` when a skill clearly fits the scouting task.
 - No hallucinated paths — only files you actually found.
 - Never recommend a specific diff; suggest approach only.
 - **Always** end with `<<<AGENT_RESULT` / `AGENT_RESULT>>>`.

@@ -72,8 +72,30 @@ function extractConstraints(description: string, labels: string[]): string[] {
   return Array.from(new Set(constraints)).slice(0, 12);
 }
 
+const BFH_STATE_GITIGNORE_CONTENT = `# BFH runtime artifacts
+*
+`;
+
+function stateRootFromPath(filePath: string): string | undefined {
+  const normalized = path.resolve(filePath);
+  const marker = `${path.sep}.pi${path.sep}bfh${path.sep}`;
+  const idx = normalized.lastIndexOf(marker);
+  if (idx === -1) return undefined;
+  return normalized.slice(0, idx + marker.length - 1);
+}
+
+function ensureStateDirGitignore(filePath: string): void {
+  const root = stateRootFromPath(filePath);
+  if (!root) return;
+  const gitignorePath = path.join(root, ".gitignore");
+  if (fs.existsSync(gitignorePath)) return;
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(gitignorePath, BFH_STATE_GITIGNORE_CONTENT, "utf8");
+}
+
 function writeJson(filePath: string, data: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  ensureStateDirGitignore(filePath);
   fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 

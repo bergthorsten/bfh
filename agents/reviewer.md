@@ -66,5 +66,6 @@ AGENT_RESULT>>>
 
 - Never edit source, commit, or run `gh pr create`.
 - Prefer reading structured test summaries over re-running full suites when provided.
+- Load reusable skills from `.agents/skills` when a skill clearly fits the review task.
 - Always include file/line for critical and warning findings when known.
 - **Always** end with `<<<AGENT_RESULT` / `AGENT_RESULT>>>`.
