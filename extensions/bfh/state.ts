@@ -15,6 +15,7 @@ import {
   type HarnessStep,
   type GitEntryMode,
   type HarnessGitState,
+  type HumanGatePostReview,
   type HumanGatePreClose,
   type HumanGatePreImplement,
   type JiraIssueSummary,
@@ -145,6 +146,26 @@ function ensureHumanGatePreImplement(value: unknown): HumanGatePreImplement {
   };
 }
 
+function ensureHumanGatePostReview(value: unknown): HumanGatePostReview {
+  const input = value && typeof value === "object" ? (value as Partial<HumanGatePostReview>) : {};
+  const allowedStatus = new Set<HumanGatePostReview["status"]>([
+    "not_needed",
+    "pending",
+    "approved_advisories",
+    "fix_requested",
+  ]);
+  const status = allowedStatus.has(input.status as HumanGatePostReview["status"])
+    ? (input.status as HumanGatePostReview["status"])
+    : "not_needed";
+
+  return {
+    status,
+    comment: typeof input.comment === "string" ? input.comment : undefined,
+    requestedAt: typeof input.requestedAt === "string" ? input.requestedAt : undefined,
+    decidedAt: typeof input.decidedAt === "string" ? input.decidedAt : undefined,
+  };
+}
+
 function ensureHumanGatePreClose(value: unknown): HumanGatePreClose {
   const input = value && typeof value === "object" ? (value as Partial<HumanGatePreClose>) : {};
   const allowedStatus = new Set<HumanGatePreClose["status"]>(["pending", "approved", "changes_requested"]);
@@ -176,6 +197,7 @@ function ensureHumanShape(state: HarnessState): void {
   state.human = {
     preImplement: ensureHumanGatePreImplement(human.preImplement),
     preClose: ensureHumanGatePreClose(human.preClose),
+    postReview: ensureHumanGatePostReview(human.postReview),
   };
 }
 
@@ -222,6 +244,9 @@ export function assertStateShape(state: HarnessState): void {
   }
   if (state.revisionCount < 0 || state.revisionLimit < 0) {
     throw new Error("State validation failed: revisionCount/revisionLimit must be >= 0.");
+  }
+  if (typeof state.humanRevisionCount !== "number" || state.humanRevisionCount < 0) {
+    state.humanRevisionCount = 0;
   }
 
   ensureDifficultyShape(state);
@@ -354,6 +379,9 @@ export function createState(issue: JiraIssueSummary, options: CreateStateOptions
       preClose: {
         status: "pending",
       },
+      postReview: {
+        status: "not_needed",
+      },
     },
     openQuestions: [],
     scout: {
@@ -366,6 +394,7 @@ export function createState(issue: JiraIssueSummary, options: CreateStateOptions
     implementationPlan: [],
     revisionCount: 0,
     revisionLimit: workflow.verifyRevisionLimit,
+    humanRevisionCount: 0,
     evidence: [],
     review: {
       verdict: "pending",
@@ -467,15 +496,33 @@ export function resolveStatePath(ctx: ExtensionContext, explicit?: string): stri
   return path.isAbsolute(candidate) ? candidate : path.resolve(ctx.cwd, candidate);
 }
 
-export function assertTransition(state: HarnessState, nextStep: HarnessStep): void {
+export type AdvanceOptions = {
+  /** Agent-driven repair loops count against revisionLimit; human-requested loops do not. */
+  revisionSource?: "agent" | "human";
+};
+
+export function assertTransition(state: HarnessState, nextStep: HarnessStep, options?: AdvanceOptions): void {
   if (!ALLOWED_TRANSITIONS[state.currentStep]?.includes(nextStep)) {
     throw new Error(`Invalid transition: ${state.currentStep} -> ${nextStep}`);
   }
 
-  if (state.currentStep === "verify_review" && nextStep === "implement" && state.revisionCount >= state.revisionLimit) {
+  if (
+    state.currentStep === "verify_review" &&
+    nextStep === "implement" &&
+    options?.revisionSource !== "human" &&
+    state.revisionCount >= state.revisionLimit
+  ) {
     throw new Error(
       `Revision limit reached (${state.revisionCount}/${state.revisionLimit}). Do not loop back to implement.`,
     );
+  }
+
+  if (state.currentStep === "verify_review" && nextStep === "close") {
+    if (!isHandsOffLevel(state) && state.human.postReview.status === "pending") {
+      throw new Error(
+        "verify_review -> close blocked: post-review human decision required (human_gate gate=post_review).",
+      );
+    }
   }
 
   if (state.currentStep === "close" && nextStep === "implement") {
@@ -484,11 +531,6 @@ export function assertTransition(state: HarnessState, nextStep: HarnessStep): vo
     }
     if (state.human.preClose.status !== "changes_requested") {
       throw new Error("close -> implement requires human pre-close decision = changes_requested.");
-    }
-    if (state.revisionCount >= state.revisionLimit) {
-      throw new Error(
-        `Revision limit reached (${state.revisionCount}/${state.revisionLimit}). Do not loop back to implement.`,
-      );
     }
   }
 
@@ -525,6 +567,7 @@ export function mergeStatePatch(state: HarnessState, patch: HarnessStatePatch | 
     "currentStep",
     "revisionCount",
     "revisionLimit",
+    "humanRevisionCount",
     "createdAt",
     "updatedAt",
   ]);
@@ -543,6 +586,7 @@ export function mergeStatePatch(state: HarnessState, patch: HarnessStatePatch | 
       state.human = {
         preImplement: { ...state.human.preImplement, ...((value as HarnessState["human"]).preImplement ?? {}) },
         preClose: { ...state.human.preClose, ...((value as HarnessState["human"]).preClose ?? {}) },
+        postReview: { ...state.human.postReview, ...((value as HarnessState["human"]).postReview ?? {}) },
       };
       ensureHumanShape(state);
     } else if (key === "review" && value && typeof value === "object") {
@@ -557,16 +601,33 @@ export function mergeStatePatch(state: HarnessState, patch: HarnessStatePatch | 
   return state;
 }
 
-export function applyAdvance(state: HarnessState, nextStep: HarnessStep, statePath?: string): void {
+export function applyAdvance(
+  state: HarnessState,
+  nextStep: HarnessStep,
+  statePath?: string,
+  options?: AdvanceOptions,
+): void {
   const fromStep = state.currentStep;
-  assertTransition(state, nextStep);
+  assertTransition(state, nextStep, options);
   if (state.currentStep === "verify_review" && nextStep === "implement") {
-    state.revisionCount += 1;
+    if (options?.revisionSource === "human") {
+      state.humanRevisionCount += 1;
+      state.human.postReview = {
+        ...state.human.postReview,
+        status: "fix_requested",
+        decidedAt: new Date().toISOString(),
+      };
+    } else {
+      state.revisionCount += 1;
+    }
     state.review.verdict = "needs_revision";
   }
   if (state.currentStep === "close" && nextStep === "implement") {
-    state.revisionCount += 1;
+    state.humanRevisionCount += 1;
     state.review.verdict = "needs_revision";
+  }
+  if (nextStep === "verify_review") {
+    state.human.postReview = { status: "not_needed" };
   }
   if (state.currentStep === "pr_review" && nextStep === "implement") {
     state.pr.externalRevisionCount = (state.pr.externalRevisionCount ?? 0) + 1;

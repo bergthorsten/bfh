@@ -20,6 +20,28 @@ describe("describePendingHarnessInput", () => {
     expect(describePendingHarnessInput(state)).toBeNull();
   });
 
+  test("detects post-review pending with advisory findings", () => {
+    const state = createState(emptyIssue, { difficulty: 2 });
+    state.currentStep = "verify_review";
+    state.human.postReview = {
+      status: "pending",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+    };
+    state.review = {
+      verdict: "approved",
+      summary: "ok with notes",
+      counts: { critical: 0, warning: 1, info: 1 },
+      findings: [
+        { severity: "warning", category: "tests", message: "add test" },
+        { severity: "info", category: "style", message: "nit" },
+      ],
+    };
+    const pending = describePendingHarnessInput(state);
+    expect(pending?.reasons).toContain("post_review");
+    expect(pending?.body).toContain("warning");
+    expect(pending?.body).toContain("add test");
+  });
+
   test("detects pre-implement pending after human_gate request", () => {
     const state = createState(emptyIssue, { difficulty: 2 });
     state.human.preImplement = {

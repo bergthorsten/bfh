@@ -1,8 +1,10 @@
 import { isHandsOffLevel, requiresMandatoryDesignReview } from "./difficulty.ts";
+import { formatAdvisoryFindingsList, formatReviewCountsLine } from "./review.ts";
 import type { DesignReviewStatus, HarnessState, HarnessStep } from "./types.ts";
 
 export type PendingReason =
   | "pre_implement"
+  | "post_review"
   | "pre_close"
   | "design_choice"
   | "design_approval"
@@ -39,6 +41,9 @@ export function describePendingHarnessInput(state: HarnessState): PendingHarness
     if (state.human.preImplement.status === "pending" && state.human.preImplement.requestedAt) {
       reasons.push("pre_implement");
     }
+    if (state.human.postReview.status === "pending" && state.human.postReview.requestedAt) {
+      reasons.push("post_review");
+    }
     if (state.human.preClose.status === "pending" && state.human.preClose.requestedAt) {
       reasons.push("pre_close");
     }
@@ -62,6 +67,9 @@ export function describePendingHarnessInput(state: HarnessState): PendingHarness
   if (reasons.includes("pre_implement")) {
     parts.push("pre-implement approval");
   }
+  if (reasons.includes("post_review")) {
+    parts.push("post-review advisory decision");
+  }
   if (reasons.includes("pre_close")) {
     parts.push("pre-close approval");
   }
@@ -76,7 +84,18 @@ export function describePendingHarnessInput(state: HarnessState): PendingHarness
     parts.push(n === 1 ? "open question" : `${n} open questions`);
   }
 
-  const body = `${parts.join(", ")} (${state.currentStep})`;
+  let body = `${parts.join(", ")} (${state.currentStep})`;
+  if (reasons.includes("post_review")) {
+    body = [
+      body,
+      "",
+      `Review counts: ${formatReviewCountsLine(state.review)}`,
+      "Advisory findings:",
+      formatAdvisoryFindingsList(state.review),
+      "",
+      "Use human_gate gate=post_review decision=approve_advisories|fix_advisories.",
+    ].join("\n");
+  }
   const title = `BFH ${state.ticketKey} needs you`;
 
   return {

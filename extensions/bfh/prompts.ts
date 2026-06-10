@@ -191,7 +191,7 @@ function workflowExpectationsBlock(state: HarnessState): string[] {
     "2. Clarify only when a real decision blocks implementation; use `question` and `human_gate` when you need human input.",
     "3. Implement the smallest safe change with a short plan.",
     "4. Run focused checks, save logs, and record evidence with `bfh_state`.",
-    "5. Run `mark_tested` and `verify_review` before close. Required human pre-close approval applies.",
+    "5. Run `mark_tested` and `verify_review` before close. Advisory findings pause for `human_gate` post_review; pre-close approval still required.",
     "6. Continue through PR review and retro as directed by the BFH state.",
   ];
 }
@@ -253,7 +253,7 @@ export function createResumePrompt(statePath: string, state: HarnessState, _cwd:
     ...(state.difficulty === 3
       ? [`Design review: ${state.designReview.status}`, ""]
       : []),
-    `Revision budget: ${state.revisionCount}/${state.revisionLimit}`,
+    `Revision budget: ${state.revisionCount}/${state.revisionLimit} (human-requested loops: ${state.humanRevisionCount})`,
     `State file: ${statePath}`,
     `Brief: ${briefPathFor(statePath)}`,
     "",

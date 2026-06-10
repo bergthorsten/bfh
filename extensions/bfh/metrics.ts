@@ -58,6 +58,7 @@ export type BfhMetrics = {
   counters: MetricsCounters;
   humanWaitMs: {
     preImplement?: number;
+    postReview?: number;
     preClose?: number;
     total: number;
   };
@@ -77,6 +78,7 @@ export type BfhMetrics = {
   snapshot?: {
     currentStep: HarnessStep;
     revisionCount: number;
+    humanRevisionCount: number;
     externalRevisionCount: number;
     designRevisionCount: number;
     evidenceCount: number;
@@ -352,6 +354,9 @@ function applyEvent(metrics: BfhMetrics, event: BfhMetricEvent): void {
         if (event.gate === "pre_close") {
           metrics.humanWaitMs.preClose = (metrics.humanWaitMs.preClose ?? 0) + event.waitMs;
         }
+        if (event.gate === "post_review") {
+          metrics.humanWaitMs.postReview = (metrics.humanWaitMs.postReview ?? 0) + event.waitMs;
+        }
       }
       break;
 
@@ -417,6 +422,7 @@ function refreshDerived(metrics: BfhMetrics, state?: HarnessState): void {
     metrics.snapshot = {
       currentStep: state.currentStep,
       revisionCount: state.revisionCount,
+      humanRevisionCount: state.humanRevisionCount,
       externalRevisionCount: state.pr.externalRevisionCount ?? 0,
       designRevisionCount: state.designReview.revisionCount,
       evidenceCount: state.evidence.length,

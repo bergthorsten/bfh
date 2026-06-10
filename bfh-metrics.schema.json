@@ -102,6 +102,7 @@
       "required": ["total"],
       "properties": {
         "preImplement": { "type": "integer", "minimum": 0 },
+        "postReview": { "type": "integer", "minimum": 0 },
         "preClose": { "type": "integer", "minimum": 0 },
         "total": { "type": "integer", "minimum": 0 }
       },
@@ -147,6 +148,7 @@
       "properties": {
         "currentStep": { "type": "string" },
         "revisionCount": { "type": "integer", "minimum": 0 },
+        "humanRevisionCount": { "type": "integer", "minimum": 0 },
         "externalRevisionCount": { "type": "integer", "minimum": 0 },
         "designRevisionCount": { "type": "integer", "minimum": 0 },
         "evidenceCount": { "type": "integer", "minimum": 0 },

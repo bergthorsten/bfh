@@ -21,6 +21,7 @@
     "implementationPlan",
     "revisionCount",
     "revisionLimit",
+    "humanRevisionCount",
     "evidence",
     "review",
     "pr",
@@ -104,7 +105,7 @@
     },
     "human": {
       "type": "object",
-      "required": ["preImplement", "preClose"],
+      "required": ["preImplement", "preClose", "postReview"],
       "properties": {
         "preImplement": {
           "type": "object",
@@ -123,6 +124,20 @@
           "required": ["status"],
           "properties": {
             "status": { "type": "string", "enum": ["pending", "approved", "changes_requested"] },
+            "comment": { "type": "string" },
+            "requestedAt": { "type": "string", "format": "date-time" },
+            "decidedAt": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        },
+        "postReview": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["not_needed", "pending", "approved_advisories", "fix_requested"]
+            },
             "comment": { "type": "string" },
             "requestedAt": { "type": "string", "format": "date-time" },
             "decidedAt": { "type": "string", "format": "date-time" }
@@ -183,6 +198,7 @@
     "implementationPlan": { "type": "array", "items": { "type": "string" } },
     "revisionCount": { "type": "integer", "minimum": 0 },
     "revisionLimit": { "type": "integer", "minimum": 0 },
+    "humanRevisionCount": { "type": "integer", "minimum": 0 },
     "evidence": {
       "type": "array",
       "items": {

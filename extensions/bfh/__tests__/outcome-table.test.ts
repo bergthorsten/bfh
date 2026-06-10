@@ -77,6 +77,51 @@ describe("verify_review outcomes", () => {
     expect(resolveVerifyReviewTransitionFromOutcome(state, review, true).transition).toBe("close");
   });
 
+  test("approved with advisory findings at L2 stays for human post_review", () => {
+    const state = createState({
+      key: "PC-1B",
+      title: "t",
+      type: "task",
+      status: "todo",
+      description: "",
+      linkedTickets: [],
+      labels: [],
+    });
+    state.currentStep = "verify_review";
+    const review = buildReviewResult({
+      verdict: "approved",
+      findings: [{ severity: "warning", category: "tests", message: "add regression test" }],
+      summary: "advisories only",
+    });
+    expect(classifyVerifyReviewOutcome(state, review, true)).toBe("pass-advisory");
+    expect(resolveVerifyReviewTransitionFromOutcome(state, review, true).transition).toBe("verify_review");
+  });
+
+  test("approved with advisory findings at L1 advances to close", () => {
+    const state = createState(
+      {
+        key: "PC-1C",
+        title: "t",
+        type: "task",
+        status: "todo",
+        description: "",
+        linkedTickets: [],
+        labels: [],
+      },
+      { difficulty: 1 },
+    );
+    const review = buildReviewResult({
+      verdict: "approved",
+      findings: [
+        { severity: "warning", category: "tests", message: "add regression test" },
+        { severity: "info", category: "style", message: "nit" },
+      ],
+      summary: "advisories only",
+    });
+    expect(classifyVerifyReviewOutcome(state, review, true)).toBe("pass");
+    expect(resolveVerifyReviewTransitionFromOutcome(state, review, true).transition).toBe("close");
+  });
+
   test("critical findings loop to implement when budget remains", () => {
     const state = createState({
       key: "PC-2",

@@ -87,6 +87,13 @@ export type HumanGatePreClose = {
   decidedAt?: string;
 };
 
+export type HumanGatePostReview = {
+  status: "not_needed" | "pending" | "approved_advisories" | "fix_requested";
+  comment?: string;
+  requestedAt?: string;
+  decidedAt?: string;
+};
+
 /** 1 = easy/hands-off, 2 = medium (default), 3 = hard (mandatory design review). */
 export type DifficultyLevel = 1 | 2 | 3;
 
@@ -153,6 +160,7 @@ export type HarnessState = {
   human: {
     preImplement: HumanGatePreImplement;
     preClose: HumanGatePreClose;
+    postReview: HumanGatePostReview;
   };
   openQuestions: Array<{ id: string; question: string; answer?: string }>;
   scout: {
@@ -165,6 +173,8 @@ export type HarnessState = {
   implementationPlan: string[];
   revisionCount: number;
   revisionLimit: number;
+  /** Human-requested implement loops (post-review advisories, pre-close changes); not counted against revisionLimit. */
+  humanRevisionCount: number;
   evidence: HarnessEvidence[];
   review: HarnessReview;
   pr: {
@@ -201,6 +211,7 @@ export type HarnessStatePatch = Partial<
     | "currentStep"
     | "revisionCount"
     | "revisionLimit"
+    | "humanRevisionCount"
     | "createdAt"
     | "updatedAt"
   >

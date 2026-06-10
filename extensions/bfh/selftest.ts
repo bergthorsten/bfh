@@ -27,7 +27,7 @@ import {
   type PrReviewSnapshot,
 } from "./pr-sync.ts";
 import { ensureHarnessReadme, ensurePrinciplesFile } from "./harness-docs.ts";
-import { buildReviewResult, resolveVerifyReviewTransition } from "./review.ts";
+import { buildReviewResult, openPostReviewGate, resolveVerifyReviewTransition } from "./review.ts";
 import { runRetro } from "./retro.ts";
 import { applyAdvance, assertStateShape, createState, readState, writeState } from "./state.ts";
 import { mergeWorkingMemory, readWorkingMemory, updateWorkingMemory } from "./working-memory.ts";
@@ -172,8 +172,10 @@ function runH3SelfTests(cwd: string, lines: string[]): void {
     },
   });
   const warnTransition = resolveVerifyReviewTransition(warningOnly, warningOnly.review);
-  assert(warnTransition === "close", "warning-only -> close");
-  applyAdvance(warningOnly, warnTransition);
+  assert(warnTransition === "verify_review", "warning-only at L2 -> await post_review");
+  openPostReviewGate(warningOnly, warningOnly.review);
+  warningOnly.human.postReview.status = "approved_advisories";
+  applyAdvance(warningOnly, "close");
   warningOnly.human.preClose.status = "approved";
   warningOnly.evidence.push({
     type: "review",
@@ -185,7 +187,14 @@ function runH3SelfTests(cwd: string, lines: string[]): void {
   seedCloseMarkers(cwd, statePath, warningOnly);
   const warnClose = evaluateCloseReadiness(cwd, statePath, warningOnly);
   assert(warnClose.ok, `warning-only should pass close_check: ${warnClose.reasons.join("; ")}`);
-  lines.push("✓ H3: warning/info-only review advances to close and passes close_check");
+  lines.push("✓ H3: warning/info-only review at L2 awaits post_review, then passes close_check");
+
+  const warnL1 = makeReviewReadyState();
+  warnL1.difficulty = 1;
+  warnL1.ticketKey = "PC-103";
+  warnL1.review = warningOnly.review;
+  assert(resolveVerifyReviewTransition(warnL1, warnL1.review) === "close", "warning-only at L1 -> close");
+  lines.push("✓ H3: warning/info-only review at L1 auto-advances to close");
 
   const critical = makeReviewReadyState();
   critical.ticketKey = "PC-103";

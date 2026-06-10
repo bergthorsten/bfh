@@ -1,5 +1,6 @@
 import { agentResultParsedOk, parseAgentResult } from "./agent-result.ts";
-import { getReviewCounts, type HarnessReview } from "./review.ts";
+import { isHandsOffLevel } from "./difficulty.ts";
+import { getReviewCounts, hasAdvisoryFindings, type HarnessReview } from "./review.ts";
 import type { PrReviewSnapshot } from "./pr-sync.ts";
 import type { HarnessState, HarnessStep } from "./types.ts";
 
@@ -8,6 +9,7 @@ export type BfhPhase = "scout" | "verify_review" | "close" | "pr_review";
 export type ScoutOutcome = "completed" | "fail-timeout" | "fail-agent-protocol";
 export type VerifyReviewOutcome =
   | "pass"
+  | "pass-advisory"
   | "fail-critical"
   | "fail-soft"
   | "budget-exhausted"
@@ -39,7 +41,7 @@ export class UnknownOutcomeError extends Error {
 
 const APPLICABLE: Record<BfhPhase, readonly PhaseOutcome[]> = {
   scout: ["completed", "fail-timeout", "fail-agent-protocol"],
-  verify_review: ["pass", "fail-critical", "fail-soft", "budget-exhausted", "fail-agent-protocol"],
+  verify_review: ["pass", "pass-advisory", "fail-critical", "fail-soft", "budget-exhausted", "fail-agent-protocol"],
   close: ["success", "fail-gates", "fail-gh", "fail-agent-protocol"],
   pr_review: ["approved", "changes-requested", "pending", "checks-failing", "fail-gh"],
 };
@@ -56,6 +58,13 @@ const MATRIX = new Map<string, OutcomeAction>([
   ],
 
   ["verify_review:pass", { action: "advance", to: "close" }],
+  [
+    "verify_review:pass-advisory",
+    {
+      action: "stay",
+      message: "review passed with advisory findings; human post_review decision required (L2/L3)",
+    },
+  ],
   ["verify_review:fail-critical", { action: "advance", to: "implement" }],
   ["verify_review:fail-soft", { action: "advance", to: "implement" }],
   ["verify_review:budget-exhausted", { action: "failed", reason: "revision budget exhausted with blocking review" }],
@@ -110,7 +119,10 @@ export function classifyVerifyReviewOutcome(
     return "fail-critical";
   }
 
-  if (review.verdict === "approved") return "pass";
+  if (review.verdict === "approved") {
+    if (!isHandsOffLevel(state) && hasAdvisoryFindings(review)) return "pass-advisory";
+    return "pass";
+  }
 
   if (review.verdict === "needs_revision") {
     if (state.revisionCount >= state.revisionLimit) return "budget-exhausted";

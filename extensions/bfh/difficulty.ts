@@ -62,6 +62,11 @@ export function applyHandsOffHumanBypass(state: HarnessState, reason: string): v
     requestedAt: now,
     decidedAt: now,
   };
+  state.human.postReview = {
+    status: "not_needed",
+    comment: reason,
+    decidedAt: now,
+  };
 }
 
 export function designReviewBlocksImplement(state: HarnessState): boolean {

@@ -8,7 +8,12 @@ import { loadBfhConfig, resolveSubagentInvocation } from "./bfh-config.ts";
 import { buildTouchedFileContext, discoverTouchedFiles } from "./git-diff.ts";
 import { buildScoutInput, normalizeReviewFromText, normalizeScoutFromText } from "./normalize.ts";
 import { getReviewSystemPrompt } from "./prompt-loader.ts";
-import { formatReviewCountsLine, getReviewCounts, resolveVerifyReviewTransition } from "./review.ts";
+import {
+  formatAdvisoryFindingsList,
+  formatReviewCountsLine,
+  getReviewCounts,
+  openPostReviewGate,
+} from "./review.ts";
 import { HarnessStateParams } from "./schema.ts";
 import { applyDesignGate } from "./design-review.ts";
 import { isHandsOffLevel } from "./difficulty.ts";
@@ -16,7 +21,11 @@ import { applyAdvance, mergeStatePatch, readState, resolveStatePath, writeState,
 import type { HarnessEvidenceInput, HarnessOpenQuestion, HarnessStep } from "./types.ts";
 import { runFreshReviewViaSubagentWithRetry, runScoutViaSubagentWithRetry } from "./subagent.ts";
 import { evaluateCloseReadiness } from "./close.ts";
-import { classifyScoutOutcome, resolvePrReviewTransitionFromOutcome } from "./outcome-table.ts";
+import {
+  classifyScoutOutcome,
+  resolvePrReviewTransitionFromOutcome,
+  resolveVerifyReviewTransitionFromOutcome,
+} from "./outcome-table.ts";
 import {
   applyPrSnapshotToState,
   formatPrReviewSummary,
@@ -56,11 +65,11 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
       "Use bfh_state action `advance` instead of directly editing currentStep; it enforces the revision limit and valid transitions.",
       "Use bfh_state action `diff_context` during verify_review to get compact git diff/status snippets without dumping entire files.",
       "Use bfh_state action `scout_auto` during scout for automated read-only scout subagent reconnaissance.",
-      "Use bfh_state action `verify_review` to run the combined review gate and auto-advance to implement/close/failed (critical blocks; warnings allow close).",
+      "Use bfh_state action `verify_review` to run the combined review gate and auto-advance to implement/close/failed (critical blocks; at L2/L3 advisories pause for human_gate post_review).",
       "Patch review.allowCloseDespiteCritical only for explicit human override when critical findings remain.",
       "Use bfh_state action `mark_tested` with testLogPath after tests (writes SHA-pinned tested.json; agents must not edit marker files).",
       "Use bfh_state action `mark_manual_tested` when src-like files changed and manual verification was done.",
-      "Use bfh_state action `human_gate` for human checkpoints: optional pre-implement approval and required pre-close approval/change request (not at difficulty level 1).",
+      "Use bfh_state action `human_gate` for human checkpoints: optional pre-implement, post-review advisories (L2/L3), and required pre-close approval/change request (not at difficulty level 1).",
       "At difficulty level 3, after scout advance to clarify and run `design_gate`: submit 2–3 options, record human choice, submit proposal, then accept/decline before implement.",
       "verify_review writes reviewed.json + REVIEW.md; close requires tested.json + reviewed.json (critical: 0) and human pre-close approval.",
       "Use bfh_state action `close_create` to enforce close gates and create a draft PR safely.",
@@ -230,20 +239,24 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
         const normalized = normalizeReviewFromText(subagentResult.text);
         state.review = normalized;
         const counts = getReviewCounts(normalized);
-        const transition = resolveVerifyReviewTransition(state, normalized, agentResultParsedOk(parsed));
-        const reviewPassed = transition === "close";
+        const parseOk = agentResultParsedOk(parsed);
+        const { transition, outcome } = resolveVerifyReviewTransitionFromOutcome(state, normalized, parseOk);
+        const awaitingPostReview = outcome === "pass-advisory";
+        const reviewPassed = outcome === "pass" || outcome === "pass-advisory";
 
         state.evidence.push({
           type: "review",
           passed: reviewPassed,
           summary:
-            reviewPassed
-              ? counts.warning > 0 || counts.info > 0
-                ? `Verify/review passed with advisories (${formatReviewCountsLine(normalized)}).`
-                : "Fresh verify/review passed."
-              : counts.critical > 0
-                ? `Verify/review blocked: ${formatReviewCountsLine(normalized)}.`
-                : "Fresh verify/review requested revisions.",
+            awaitingPostReview
+              ? `Verify/review passed with advisories (${formatReviewCountsLine(normalized)}); awaiting human post_review.`
+              : reviewPassed
+                ? counts.warning > 0 || counts.info > 0
+                  ? `Verify/review passed with advisories (${formatReviewCountsLine(normalized)}).`
+                  : "Fresh verify/review passed."
+                : counts.critical > 0
+                  ? `Verify/review blocked: ${formatReviewCountsLine(normalized)}.`
+                  : "Fresh verify/review requested revisions.",
           createdAt: new Date().toISOString(),
         });
 
@@ -253,10 +266,19 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
           });
         }
 
-        applyAdvance(state, transition, statePath);
+        if (awaitingPostReview) {
+          openPostReviewGate(state, normalized);
+        } else {
+          applyAdvance(state, transition, statePath);
+        }
+
         writeState(statePath, state);
         const reviewedMarker = writeReviewedMarker(statePath, state);
-        appendBriefProgress(statePath, "verify_review", `${transition}: ${normalized.summary}`);
+        appendBriefProgress(
+          statePath,
+          "verify_review",
+          awaitingPostReview ? `awaiting post_review: ${normalized.summary}` : `${transition}: ${normalized.summary}`,
+        );
 
         return {
           content: [{
@@ -264,8 +286,13 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
             text: [
               stateToolText(statePath, state),
               "",
-              `verify_review transition: ${transition}`,
+              awaitingPostReview
+                ? "verify_review: advisory findings — human post_review decision required (human_gate gate=post_review)."
+                : `verify_review transition: ${transition}`,
               `Findings: ${formatReviewCountsLine(normalized)}`,
+              ...(awaitingPostReview
+                ? ["", "Advisory findings:", formatAdvisoryFindingsList(normalized)]
+                : []),
               `reviewed.json: critical=${reviewedMarker.critical} warning=${reviewedMarker.warning} info=${reviewedMarker.info}`,
               "",
               "Fresh reviewer output:",
@@ -275,7 +302,9 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
           details: {
             ok: transition !== "failed",
             statePath,
-            transition,
+            transition: awaitingPostReview ? "verify_review" : transition,
+            outcome,
+            awaitingPostReview,
             touchedFiles,
             filesUsed: bundle.filesUsed,
             review: normalized,
@@ -409,6 +438,32 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
           } else {
             throw new Error("human_gate pre_implement decision must be request|approve|not_needed.");
           }
+        } else if (gate === "post_review") {
+          if (state.currentStep !== "verify_review") {
+            throw new Error("human_gate post_review requires currentStep=verify_review.");
+          }
+          if (state.human.postReview.status !== "pending") {
+            throw new Error("human_gate post_review requires postReview.status=pending.");
+          }
+          if (decision === "approve_advisories") {
+            state.human.postReview = {
+              ...state.human.postReview,
+              status: "approved_advisories",
+              comment: comment || state.human.postReview.comment,
+              decidedAt: now,
+            };
+            applyAdvance(state, "close", statePath);
+          } else if (decision === "fix_advisories") {
+            state.human.postReview = {
+              ...state.human.postReview,
+              status: "fix_requested",
+              comment: comment || state.human.postReview.comment,
+              decidedAt: now,
+            };
+            applyAdvance(state, "implement", statePath, { revisionSource: "human" });
+          } else {
+            throw new Error("human_gate post_review decision must be approve_advisories|fix_advisories.");
+          }
         } else if (gate === "pre_close") {
           if (decision === "request") {
             state.human.preClose = {
@@ -431,13 +486,13 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
               decidedAt: now,
             };
             if (state.currentStep === "close" && params.autoAdvanceOnHumanChanges !== false) {
-              applyAdvance(state, "implement", statePath);
+              applyAdvance(state, "implement", statePath, { revisionSource: "human" });
             }
           } else {
             throw new Error("human_gate pre_close decision must be request|approve|changes_requested.");
           }
         } else {
-          throw new Error("human_gate gate must be pre_implement|pre_close.");
+          throw new Error("human_gate gate must be pre_implement|post_review|pre_close.");
         }
 
         state.evidence.push({
@@ -450,7 +505,9 @@ export function registerBfhStateTool(pi: ExtensionAPI): void {
         const waitMs =
           gate === "pre_implement"
             ? humanGateWaitMs(state.human.preImplement.requestedAt, state.human.preImplement.decidedAt)
-            : humanGateWaitMs(state.human.preClose.requestedAt, state.human.preClose.decidedAt);
+            : gate === "post_review"
+              ? humanGateWaitMs(state.human.postReview.requestedAt, state.human.postReview.decidedAt)
+              : humanGateWaitMs(state.human.preClose.requestedAt, state.human.preClose.decidedAt);
         recordHumanGate(statePath, state, gate, decision, waitMs);
 
         return {

@@ -71,6 +71,46 @@ describe("state", () => {
     expect(state.currentStep).toBe("implement");
   });
 
+  test("human post_review fix does not consume agent revision budget", () => {
+    const state = createState({
+      key: "PC-118",
+      title: "t",
+      type: "task",
+      status: "todo",
+      description: "",
+      linkedTickets: [],
+      labels: [],
+    });
+    applyAdvance(state, "scout");
+    applyAdvance(state, "implement");
+    applyAdvance(state, "verify_review");
+    state.human.postReview = { status: "pending", requestedAt: new Date().toISOString() };
+
+    applyAdvance(state, "implement", undefined, { revisionSource: "human" });
+
+    expect(state.revisionCount).toBe(0);
+    expect(state.humanRevisionCount).toBe(1);
+    expect(state.currentStep).toBe("implement");
+  });
+
+  test("verify_review -> close blocked while post_review pending", () => {
+    const state = createState({
+      key: "PC-117",
+      title: "t",
+      type: "task",
+      status: "todo",
+      description: "",
+      linkedTickets: [],
+      labels: [],
+    });
+    applyAdvance(state, "scout");
+    applyAdvance(state, "implement");
+    applyAdvance(state, "verify_review");
+    state.human.postReview = { status: "pending", requestedAt: new Date().toISOString() };
+
+    expect(() => applyAdvance(state, "close")).toThrow(/post-review human decision required/i);
+  });
+
   test("close -> implement requires human changes request", () => {
     const state = createState({
       key: "PC-12",

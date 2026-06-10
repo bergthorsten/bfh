@@ -69,8 +69,11 @@ export const HarnessStateParams = Type.Object({
   })),
   humanGate: Type.Optional(
     Type.Object({
-      gate: Type.String({ description: "pre_implement | pre_close" }),
-      decision: Type.String({ description: "request | approve | changes_requested | not_needed" }),
+      gate: Type.String({ description: "pre_implement | post_review | pre_close" }),
+      decision: Type.String({
+        description:
+          "pre_implement: request|approve|not_needed; post_review: approve_advisories|fix_advisories; pre_close: request|approve|changes_requested",
+      }),
       comment: Type.Optional(Type.String()),
     }),
   ),
